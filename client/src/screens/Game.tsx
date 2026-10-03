@@ -158,7 +158,7 @@ export default function Game({
             className="target-chip"
             onClick={() => setCircleOpen(true)}
           >
-            Solving for <strong>{state.yourTargetName}</strong>
+            <strong>{state.yourTargetName}</strong> is your target
           </button>
         ) : null}
         <div className="legend">

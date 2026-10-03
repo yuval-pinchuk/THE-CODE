@@ -78,7 +78,7 @@ export default function Setup({ state, playerId, busy, error, onSubmit }: Props)
         <h2>Code locked in</h2>
         {state.yourTargetName ? (
           <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>
-            You’ll be solving for <strong>{state.yourTargetName}</strong>.
+            <strong>{state.yourTargetName}</strong> is your target.
           </p>
         ) : null}
         <div className="banner">Waiting for everyone to finish their codes…</div>
@@ -96,7 +96,7 @@ export default function Setup({ state, playerId, busy, error, onSubmit }: Props)
       <h2>Create your code</h2>
       {state.yourTargetName ? (
         <p style={{ marginTop: 0, color: "var(--navy)", fontWeight: 800 }}>
-          You’re solving for {state.yourTargetName}
+          {state.yourTargetName} is your target
         </p>
       ) : null}
       <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>

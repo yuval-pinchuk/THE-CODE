@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from "react";
-import type { Axis, LineValues, LockedBoard } from "@shared/types";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import type { Axis, Grid, LineValues, LockedBoard } from "@shared/types";
 import { COL_LABELS, ROW_LABELS } from "@shared/types";
 
 export type SolvedLine = {
@@ -14,6 +14,10 @@ type Props = {
   solvedLines?: SolvedLine[];
   /** Fired (debounced) when committed large digits change, for peer peeks. */
   onLockedChange?: (locked: LockedBoard) => void;
+  /** When true and the board has all 9 large digits, show Solve next to Reset. */
+  canOfferSolve?: boolean;
+  busy?: boolean;
+  onSolveBoard?: (grid: Grid) => void;
 };
 
 type NotesState = {
@@ -43,6 +47,25 @@ function soleSurvivor(cell: boolean[]): number | null {
     if (!cell[i]) open.push(i + 1);
   }
   return open.length === 1 ? open[0] : null;
+}
+
+/** Full 3×3 of large digits (locked or sole survivor), or null if incomplete/invalid. */
+function completeBoardGrid(notes: NotesState): Grid | null {
+  const grid: number[][] = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ];
+  const seen = new Set<number>();
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const digit = notes.locked[r][c] ?? soleSurvivor(notes.crossed[r][c]);
+      if (digit === null || seen.has(digit)) return null;
+      seen.add(digit);
+      grid[r][c] = digit;
+    }
+  }
+  return seen.size === 9 ? (grid as Grid) : null;
 }
 
 function loadNotes(storageKey: string): NotesState {
@@ -184,6 +207,9 @@ export default function DeductionMatrix({
   storageKey,
   solvedLines = [],
   onLockedChange,
+  canOfferSolve = false,
+  busy = false,
+  onSolveBoard,
 }: Props) {
   const [notes, setNotes] = useState<NotesState>(() => loadNotes(storageKey));
   const [editing, setEditing] = useState<{ r: number; c: number } | null>(null);
@@ -399,6 +425,8 @@ export default function DeductionMatrix({
     return notes.locked[r][c] ?? soleSurvivor(notes.crossed[r][c]) ?? 0;
   }
 
+  const completeGrid = useMemo(() => completeBoardGrid(notes), [notes]);
+
   return (
     <div>
       <div className="deduction">
@@ -474,6 +502,17 @@ export default function DeductionMatrix({
         <button type="button" className="btn btn-ghost" onClick={reset}>
           Reset notes
         </button>
+        {canOfferSolve && completeGrid && onSolveBoard ? (
+          <button
+            type="button"
+            className="btn btn-coral"
+            style={{ width: "auto", padding: "0.55rem 1.1rem" }}
+            disabled={busy}
+            onClick={() => onSolveBoard(completeGrid)}
+          >
+            Solve
+          </button>
+        ) : null}
       </div>
     </div>
   );

@@ -262,6 +262,9 @@ export default function Game({
               onLockedChange={(locked) => {
                 void updateLockedBoard({ locked });
               }}
+              canOfferSolve={myTurn}
+              busy={busy}
+              onSolveBoard={onSolve}
             />
           </>
         )}

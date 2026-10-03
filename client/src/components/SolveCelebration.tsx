@@ -5,7 +5,7 @@ type Props = {
   celebration: CelebrationState;
   viewerId: string;
   busy: boolean;
-  /** False when every player has already solved. */
+  /** False when every player still in the round has solved (restart voters ignored). */
   canContinue: boolean;
   onContinue: () => void;
   onRestart: () => void;
@@ -92,7 +92,7 @@ export default function SolveCelebration({
         </h2>
         <p className="celebration-sub">
           {!canContinue
-            ? "Everyone has solved — restart or leave."
+            ? "Everyone left in the round has solved — restart or leave."
             : isSolver
               ? "Continue as a spectator, wait to restart, or leave."
               : "Continue playing, wait to restart, or leave."}

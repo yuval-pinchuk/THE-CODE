@@ -6,6 +6,7 @@ import type {
   Grid,
   HistoryEntry,
   LineValues,
+  LockedBoard,
   Phase,
   PublicRoomState,
 } from "../shared/types.js";
@@ -23,6 +24,44 @@ const RECONNECT_GRACE_MS = 60_000;
 const MAX_PLAYERS = 8;
 const MIN_PLAYERS = 2;
 
+function emptyLockedBoard(): LockedBoard {
+  return [
+    [null, null, null],
+    [null, null, null],
+    [null, null, null],
+  ];
+}
+
+function cloneLockedBoard(board: LockedBoard): LockedBoard {
+  return board.map((row) => [...row]) as LockedBoard;
+}
+
+function isValidLockedBoard(value: unknown): value is LockedBoard {
+  if (!Array.isArray(value) || value.length !== 3) return false;
+  const seen = new Set<number>();
+  for (const row of value) {
+    if (!Array.isArray(row) || row.length !== 3) return false;
+    for (const cell of row) {
+      if (cell === null) continue;
+      if (typeof cell !== "number" || !Number.isInteger(cell) || cell < 1 || cell > 9) {
+        return false;
+      }
+      if (seen.has(cell)) return false;
+      seen.add(cell);
+    }
+  }
+  return true;
+}
+
+function lockedBoardsEqual(a: LockedBoard, b: LockedBoard): boolean {
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      if (a[r][c] !== b[r][c]) return false;
+    }
+  }
+  return true;
+}
+
 interface Player {
   id: string;
   name: string;
@@ -31,6 +70,7 @@ interface Player {
   secretGrid: Grid | null;
   hasSolved: boolean;
   wantsRestart: boolean;
+  lockedBoard: LockedBoard;
   disconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -126,6 +166,7 @@ function resetRoundState(room: Room): void {
     p.secretGrid = null;
     p.hasSolved = false;
     p.wantsRestart = false;
+    p.lockedBoard = emptyLockedBoard();
   }
 }
 
@@ -140,6 +181,7 @@ function returnToLobby(room: Room): void {
     p.secretGrid = null;
     p.hasSolved = false;
     p.wantsRestart = false;
+    p.lockedBoard = emptyLockedBoard();
   }
 }
 
@@ -166,6 +208,7 @@ function newPlayer(id: string, name: string, socketId: string): Player {
     secretGrid: null,
     hasSolved: false,
     wantsRestart: false,
+    lockedBoard: emptyLockedBoard(),
     disconnectTimer: null,
   };
 }
@@ -259,6 +302,9 @@ export function toPublicState(room: Room, viewerId: string): PublicRoomState {
     celebration: room.celebration,
     unsolvedCount: unsolvedInGame,
     yourGrid: viewer?.secretGrid ? cloneGrid(viewer.secretGrid) : null,
+    playerLockedBoards: Object.fromEntries(
+      room.players.map((p) => [p.id, cloneLockedBoard(p.lockedBoard)]),
+    ),
     paused: isPaused(room),
     message,
   };
@@ -531,6 +577,31 @@ export function requestRestart(roomCode: string, playerId: string): ActionResult
 
   maybeReturnToLobbyAfterRestartVotes(room);
 
+  return { ok: true, room, states: broadcastStates(room) };
+}
+
+export function updateLockedBoard(
+  roomCode: string,
+  playerId: string,
+  lockedRaw: unknown,
+): ActionResult {
+  const room = rooms.get(roomCode);
+  if (!room) return { ok: false, error: "Room not found." };
+  if (room.phase !== "playing" && room.phase !== "setup") {
+    return { ok: false, error: "No active round." };
+  }
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) return { ok: false, error: "Player not in room." };
+  if (!isValidLockedBoard(lockedRaw)) {
+    return { ok: false, error: "Invalid locked board." };
+  }
+
+  const next = cloneLockedBoard(lockedRaw);
+  if (lockedBoardsEqual(player.lockedBoard, next)) {
+    return { ok: true, room, states: broadcastStates(room) };
+  }
+
+  player.lockedBoard = next;
   return { ok: true, room, states: broadcastStates(room) };
 }
 

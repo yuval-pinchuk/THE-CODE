@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { Axis, LineValues } from "@shared/types";
+import type { Axis, LineValues, LockedBoard } from "@shared/types";
 import { COL_LABELS, ROW_LABELS } from "@shared/types";
 
 export type SolvedLine = {
@@ -12,6 +12,8 @@ export type SolvedLine = {
 type Props = {
   storageKey: string;
   solvedLines?: SolvedLine[];
+  /** Fired (debounced) when committed large digits change, for peer peeks. */
+  onLockedChange?: (locked: LockedBoard) => void;
 };
 
 type NotesState = {
@@ -178,7 +180,11 @@ function applySolvedToNotes(notes: NotesState, line: SolvedLine): NotesState {
   return next;
 }
 
-export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props) {
+export default function DeductionMatrix({
+  storageKey,
+  solvedLines = [],
+  onLockedChange,
+}: Props) {
   const [notes, setNotes] = useState<NotesState>(() => loadNotes(storageKey));
   const [editing, setEditing] = useState<{ r: number; c: number } | null>(null);
   const [holding, setHolding] = useState<{ r: number; c: number; digitIndex: number } | null>(
@@ -190,6 +196,9 @@ export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props)
   const longPressDone = useRef(false);
   const notesRef = useRef(notes);
   notesRef.current = notes;
+  const onLockedChangeRef = useRef(onLockedChange);
+  onLockedChangeRef.current = onLockedChange;
+  const lastSentLocked = useRef<string>("");
 
   useEffect(() => {
     setNotes(loadNotes(storageKey));
@@ -197,11 +206,23 @@ export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props)
     setHolding(null);
     clearTimer();
     clearLongPress();
+    lastSentLocked.current = "";
   }, [storageKey]);
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(notes));
   }, [notes, storageKey]);
+
+  useEffect(() => {
+    const locked = notes.locked.map((row) => [...row]) as LockedBoard;
+    const key = JSON.stringify(locked);
+    if (key === lastSentLocked.current) return;
+    const t = window.setTimeout(() => {
+      lastSentLocked.current = key;
+      onLockedChangeRef.current?.(locked);
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [notes.locked]);
 
   useEffect(() => {
     if (solvedLines.length === 0) return;

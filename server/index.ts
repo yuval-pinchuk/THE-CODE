@@ -9,6 +9,7 @@ import type {
   JoinPayload,
   SetCodePayload,
   SolvePayload,
+  UpdateLockedBoardPayload,
 } from "../shared/types.js";
 import {
   getConnectedSocketIds,
@@ -21,6 +22,7 @@ import {
   startGame,
   solve,
   toPublicState,
+  updateLockedBoard,
 } from "./rooms.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -197,6 +199,21 @@ io.on("connection", (socket) => {
       return;
     }
     const result = requestRestart(data.roomCode, data.playerId);
+    if (!result.ok) {
+      ack?.({ ok: false, error: result.error });
+      return;
+    }
+    emitStates(result.room.code, result.states);
+    ack?.({ ok: true });
+  });
+
+  socket.on("notes:updateLocked", (...args: unknown[]) => {
+    const { payload, ack } = splitAck<UpdateLockedBoardPayload>(args);
+    if (!data.roomCode || !data.playerId) {
+      ack?.({ ok: false, error: "Not in a room." });
+      return;
+    }
+    const result = updateLockedBoard(data.roomCode, data.playerId, payload?.locked);
     if (!result.ok) {
       ack?.({ ok: false, error: result.error });
       return;

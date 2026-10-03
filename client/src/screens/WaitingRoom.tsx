@@ -48,9 +48,11 @@ export default function WaitingRoom({ state, busy, onLeave }: Props) {
       )}
 
       <div style={{ height: "0.85rem" }} />
-      <button type="button" className="btn btn-ghost" onClick={onLeave} disabled={busy}>
-        Leave room
-      </button>
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <button type="button" className="btn btn-ghost" onClick={onLeave} disabled={busy}>
+          Leave room
+        </button>
+      </div>
     </div>
   );
 }

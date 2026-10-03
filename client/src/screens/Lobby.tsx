@@ -13,6 +13,7 @@ type Props = {
   onJoin: (name: string, roomCode: string) => void;
   onStart: () => void;
   onLeave: () => void;
+  onGoHome: () => void;
 };
 
 export default function Lobby({
@@ -24,6 +25,7 @@ export default function Lobby({
   onJoin,
   onStart,
   onLeave,
+  onGoHome,
 }: Props) {
   const [name, setName] = useState(() => localStorage.getItem("ofiny_name") ?? "");
   const [roomCode, setRoomCode] = useState(initialRoomCode ?? "");
@@ -116,6 +118,16 @@ export default function Lobby({
             {fromInviteLink ? "Join room" : "Create / join room"}
           </button>
         </form>
+        {fromInviteLink ? (
+          <>
+            <div style={{ height: "0.65rem" }} />
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <button type="button" className="btn btn-ghost" onClick={onGoHome}>
+                Go to home
+              </button>
+            </div>
+          </>
+        ) : null}
       </div>
     );
   }

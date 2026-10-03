@@ -180,6 +180,12 @@ export default function App() {
     leavingRef.current = false;
   }
 
+  function handleGoHome() {
+    setError(null);
+    setRoomInUrl(null);
+    setLinkRoomCode(null);
+  }
+
   const phase = state?.phase;
   const me = state?.players.find((p) => p.id === playerId);
   const inWaitingRoom =
@@ -204,6 +210,7 @@ export default function App() {
           onJoin={handleJoin}
           onStart={handleStart}
           onLeave={handleLeave}
+          onGoHome={handleGoHome}
         />
       ) : null}
 

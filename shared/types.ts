@@ -10,6 +10,13 @@ export type Grid = [
 
 export type LineValues = [number, number, number];
 
+/** Digits a player has committed as large on their deduction board (null = empty). */
+export type LockedBoard = [
+  [number | null, number | null, number | null],
+  [number | null, number | null, number | null],
+  [number | null, number | null, number | null],
+];
+
 export type PlayerSeat = "playing" | "waitingRestart";
 
 export interface PublicPlayer {
@@ -75,6 +82,8 @@ export interface PublicRoomState {
   celebration: CelebrationState | null;
   unsolvedCount: number;
   yourGrid: Grid | null;
+  /** Large locked digits each player has published from their deduction board. */
+  playerLockedBoards: Record<string, LockedBoard>;
   paused: boolean;
   message: string | null;
 }
@@ -97,6 +106,10 @@ export interface SetCodePayload {
 
 export interface SolvePayload {
   grid: Grid;
+}
+
+export interface UpdateLockedBoardPayload {
+  locked: LockedBoard;
 }
 
 export const ROW_LABELS = ["X", "Y", "Z"] as const;

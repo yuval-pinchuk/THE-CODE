@@ -14,6 +14,7 @@ import GuessPanel from "../components/GuessPanel";
 import LabeledGrid from "../components/LabeledGrid";
 import SolveCelebration from "../components/SolveCelebration";
 import { notesStorageKey } from "../notesStorage";
+import { updateLockedBoard } from "../socket";
 
 type Props = {
   state: PublicRoomState;
@@ -40,6 +41,7 @@ export default function Game({
   const [solveOpen, setSolveOpen] = useState(false);
   const [circleOpen, setCircleOpen] = useState(false);
   const [guessPopup, setGuessPopup] = useState<GuessHistoryEntry | null>(null);
+  const [wrongSolveFlash, setWrongSolveFlash] = useState(false);
   const [dismissedCelebrationKey, setDismissedCelebrationKey] = useState<string | null>(null);
   const [historyFilter, setHistoryFilter] = useState<string>("all");
   const [solveGrid, setSolveGrid] = useState<(number | null)[][]>([
@@ -111,7 +113,25 @@ export default function Game({
       setGuessPopup(last);
       setSolveOpen(false);
     }
-  }, [state.history, showCelebration]);
+    if (
+      last.kind === "solve" &&
+      !last.correct &&
+      last.playerId === playerId &&
+      !showCelebration
+    ) {
+      setSolveOpen(false);
+      setWrongSolveFlash(true);
+    }
+  }, [state.history, showCelebration, playerId]);
+
+  useEffect(() => {
+    if (!wrongSolveFlash) return;
+    if (typeof navigator.vibrate === "function") {
+      navigator.vibrate([40, 40, 80]);
+    }
+    const t = window.setTimeout(() => setWrongSolveFlash(false), 1400);
+    return () => window.clearTimeout(t);
+  }, [wrongSolveFlash]);
 
   useEffect(() => {
     if (!myTurn) setSolveOpen(false);
@@ -239,6 +259,9 @@ export default function Game({
                 state.roundId ?? "none",
               )}
               solvedLines={solvedLines}
+              onLockedChange={(locked) => {
+                void updateLockedBoard({ locked });
+              }}
             />
           </>
         )}
@@ -374,6 +397,28 @@ export default function Game({
         </div>
       ) : null}
 
+      {wrongSolveFlash ? (
+        <div
+          className="modal-backdrop wrong-solve-backdrop"
+          role="status"
+          aria-live="assertive"
+          aria-label="Wrong solve"
+          onClick={() => setWrongSolveFlash(false)}
+        >
+          <div className="wrong-solve-burst">
+            <svg
+              className="wrong-solve-x"
+              viewBox="0 0 100 100"
+              aria-hidden="true"
+            >
+              <path className="wrong-solve-arm wrong-solve-arm-a" d="M22 22 L78 78" />
+              <path className="wrong-solve-arm wrong-solve-arm-b" d="M78 22 L22 78" />
+            </svg>
+            <p className="wrong-solve-label">Wrong</p>
+          </div>
+        </div>
+      ) : null}
+
       {guessPopup && !showCelebration ? (
         <div
           className="modal-backdrop"
@@ -423,6 +468,7 @@ export default function Game({
           assignments={state.assignments}
           viewerId={playerId}
           yourTargetId={state.yourTargetId}
+          playerLockedBoards={state.playerLockedBoards ?? {}}
           onClose={() => setCircleOpen(false)}
         />
       ) : null}
@@ -432,7 +478,9 @@ export default function Game({
           celebration={state.celebration}
           viewerId={playerId}
           busy={busy}
-          canContinue={state.players.some((p) => !p.hasSolved)}
+          canContinue={state.players.some(
+            (p) => !p.hasSolved && !p.wantsRestart,
+          )}
           onContinue={() => setDismissedCelebrationKey(celebrationKey)}
           onRestart={() => {
             setDismissedCelebrationKey(celebrationKey);

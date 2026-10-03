@@ -5,6 +5,7 @@ import type {
   PublicRoomState,
   SetCodePayload,
   SolvePayload,
+  UpdateLockedBoardPayload,
 } from "@shared/types";
 
 export type Ack<T = unknown> =
@@ -68,6 +69,10 @@ export function solveCode(payload: SolvePayload) {
 
 export function requestRestart() {
   return emitAck("game:requestRestart", {});
+}
+
+export function updateLockedBoard(payload: UpdateLockedBoardPayload) {
+  return emitAck("notes:updateLocked", payload);
 }
 
 export function onRoomState(handler: (state: PublicRoomState) => void) {

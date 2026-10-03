@@ -48,6 +48,16 @@ function normalizeRoomCode(code: string): string | null {
   return trimmed;
 }
 
+function namesMatch(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function isNameTaken(room: Room, name: string, exceptPlayerId?: string): boolean {
+  return room.players.some(
+    (p) => p.id !== exceptPlayerId && namesMatch(p.name, name),
+  );
+}
+
 function getOpponent(room: Room, playerId: string): Player | undefined {
   return room.players.find((p) => p.id !== playerId);
 }
@@ -126,6 +136,9 @@ export function joinRoom(
   if (existingPlayerId && room) {
     const existing = room.players.find((p) => p.id === existingPlayerId);
     if (existing) {
+      if (isNameTaken(room, name, existing.id)) {
+        return { ok: false, error: "That name is already taken in this room." };
+      }
       if (existing.disconnectTimer) {
         clearTimeout(existing.disconnectTimer);
         existing.disconnectTimer = null;
@@ -180,6 +193,10 @@ export function joinRoom(
     return { ok: false, error: "Room is full." };
   }
 
+  if (isNameTaken(room, name)) {
+    return { ok: false, error: "That name is already taken in this room." };
+  }
+
   const playerId = randomUUID();
   room.players.push({
     id: playerId,
@@ -189,6 +206,7 @@ export function joinRoom(
     secretGrid: null,
     disconnectTimer: null,
   });
+
 
   return {
     ok: true,

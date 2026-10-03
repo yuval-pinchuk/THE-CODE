@@ -1,5 +1,11 @@
-import { useMemo, useState } from "react";
-import type { Axis, Grid, LineValues, PublicRoomState } from "@shared/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  Axis,
+  Grid,
+  GuessHistoryEntry,
+  LineValues,
+  PublicRoomState,
+} from "@shared/types";
 import Coins from "../components/Coins";
 import DeductionMatrix from "../components/DeductionMatrix";
 import DigitTray from "../components/DigitTray";
@@ -27,6 +33,7 @@ export default function Game({
 }: Props) {
   const [view, setView] = useState<"code" | "notes">("notes");
   const [solveOpen, setSolveOpen] = useState(false);
+  const [guessPopup, setGuessPopup] = useState<GuessHistoryEntry | null>(null);
   const [solveGrid, setSolveGrid] = useState<(number | null)[][]>([
     [null, null, null],
     [null, null, null],
@@ -36,9 +43,33 @@ export default function Game({
     row: 0,
     col: 0,
   });
+  const seenHistoryId = useRef<string | null | undefined>(undefined);
 
   const myTurn = state.turnPlayerId === playerId && !state.paused && state.phase === "playing";
   const opponent = state.players.find((p) => p.id !== playerId);
+
+  useEffect(() => {
+    const last = state.history[state.history.length - 1];
+    if (!last) {
+      seenHistoryId.current = null;
+      return;
+    }
+    // Skip popup for history already present on first sync / reconnect.
+    if (seenHistoryId.current === undefined) {
+      seenHistoryId.current = last.id;
+      return;
+    }
+    if (last.id === seenHistoryId.current) return;
+    seenHistoryId.current = last.id;
+    if (last.kind === "guess") {
+      setGuessPopup(last);
+      setSolveOpen(false);
+    }
+  }, [state.history]);
+
+  useEffect(() => {
+    if (!myTurn) setSolveOpen(false);
+  }, [myTurn]);
 
   const used = useMemo(() => {
     const set = new Set<number>();
@@ -144,9 +175,9 @@ export default function Game({
         )}
       </div>
 
-      {state.phase === "playing" ? (
+      {state.phase === "playing" && myTurn ? (
         <GuessPanel
-          disabled={!myTurn || busy}
+          disabled={busy}
           onGuess={onGuess}
           onOpenSolve={() => {
             setSolveGrid([
@@ -234,6 +265,49 @@ export default function Game({
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {guessPopup ? (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Guess result"
+          onClick={() => setGuessPopup(null)}
+        >
+          <div
+            className="modal guess-result-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="guess-result-kicker">
+              {guessPopup.playerId === playerId ? "Your guess" : `${guessPopup.playerName} guessed`}
+            </p>
+            <h2 className="guess-result-title">
+              Line {guessPopup.label}
+            </h2>
+            <div className="guess-result-digits" aria-label={`Guess ${guessPopup.values.join(" ")}`}>
+              {guessPopup.values.map((v, i) => (
+                <span key={i} className="guess-result-digit">
+                  {v}
+                </span>
+              ))}
+            </div>
+            <div className="guess-result-coins">
+              <Coins gold={guessPopup.gold} silver={guessPopup.silver} />
+            </div>
+            <p className="guess-result-summary">
+              {guessPopup.gold} gold · {guessPopup.silver} silver
+              {guessPopup.gold === 0 && guessPopup.silver === 0 ? " · miss" : ""}
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setGuessPopup(null)}
+            >
+              Continue
+            </button>
           </div>
         </div>
       ) : null}

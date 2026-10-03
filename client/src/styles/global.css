@@ -175,6 +175,57 @@ button {
   flex-wrap: wrap;
 }
 
+.lobby-lead {
+  margin: -0.35rem 0 0.85rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.share-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.share-url {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--navy);
+  background: rgba(255, 255, 255, 0.85);
+  border: 2px solid rgba(11, 61, 74, 0.12);
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  user-select: all;
+}
+
+.share-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.btn-half {
+  width: 100%;
+}
+
+.share-status {
+  margin: 0;
+  text-align: center;
+  font-weight: 800;
+  color: var(--teal);
+  font-size: 0.9rem;
+}
+
+.share-code-hint {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
 .error {
   background: rgba(226, 74, 45, 0.12);
   color: var(--coral-deep);
@@ -481,6 +532,73 @@ button {
   animation: slide-up 0.25s ease;
   max-height: 90dvh;
   overflow: auto;
+}
+
+.guess-result-modal {
+  text-align: center;
+  align-self: center;
+  border-radius: 22px;
+}
+
+.guess-result-kicker {
+  margin: 0 0 0.25rem;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.guess-result-title {
+  font-family: var(--font-display);
+  margin: 0 0 0.85rem;
+  color: var(--navy);
+  font-size: 1.6rem;
+}
+
+.guess-result-digits {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.guess-result-digit {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: #e8faf6;
+  border: 2px solid var(--teal);
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--navy);
+  animation: coin-pop 0.4s ease both;
+}
+
+.guess-result-digit:nth-child(2) {
+  animation-delay: 0.05s;
+}
+
+.guess-result-digit:nth-child(3) {
+  animation-delay: 0.1s;
+}
+
+.guess-result-coins {
+  display: flex;
+  justify-content: center;
+  min-height: 1.6rem;
+  margin-bottom: 0.35rem;
+}
+
+.guess-result-coins .coin {
+  width: 1.55rem;
+  height: 1.55rem;
+  margin: 0 0.2rem;
+}
+
+.guess-result-summary {
+  margin: 0 0 1rem;
+  font-weight: 800;
+  color: var(--navy);
 }
 
 @keyframes brand-pop {

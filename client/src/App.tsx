@@ -3,6 +3,7 @@ import type { Axis, Grid, LineValues, PublicRoomState } from "@shared/types";
 import Game from "./screens/Game";
 import Lobby from "./screens/Lobby";
 import Setup from "./screens/Setup";
+import { readRoomFromUrl, setRoomInUrl } from "./roomUrl";
 import {
   guessLine,
   joinRoom,
@@ -24,13 +25,18 @@ export default function App() {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkRoomCode, setLinkRoomCode] = useState(() => readRoomFromUrl());
 
   useEffect(() => onRoomState(setState), []);
 
   useEffect(() => {
+    const urlRoom = readRoomFromUrl();
     const savedRoom = localStorage.getItem(ROOM_KEY);
     const savedName = localStorage.getItem(NAME_KEY);
     const savedPlayer = localStorage.getItem(PLAYER_KEY);
+
+    // Prefer URL room for a fresh invite join; only auto-reconnect when it matches.
+    if (urlRoom && savedRoom && urlRoom !== savedRoom) return;
     if (!savedRoom || !savedName || !savedPlayer) return;
 
     let cancelled = false;
@@ -51,6 +57,7 @@ export default function App() {
         localStorage.setItem(PLAYER_KEY, res.playerId);
         setPlayerId(res.playerId);
       }
+      setRoomInUrl(savedRoom);
       if (res.state) setState(res.state);
     })();
 
@@ -78,6 +85,8 @@ export default function App() {
     }
     localStorage.setItem(ROOM_KEY, roomCode);
     localStorage.setItem(NAME_KEY, name);
+    setRoomInUrl(roomCode);
+    setLinkRoomCode(roomCode);
     if (res.state) setState(res.state);
   }
 
@@ -118,6 +127,8 @@ export default function App() {
     setError(null);
     await leaveRoom();
     localStorage.removeItem(ROOM_KEY);
+    setRoomInUrl(null);
+    setLinkRoomCode(null);
     setBusy(false);
     setState(null);
   }
@@ -139,6 +150,7 @@ export default function App() {
           playerId={playerId}
           busy={busy}
           error={error}
+          initialRoomCode={linkRoomCode}
           onJoin={handleJoin}
           onStart={handleStart}
           onLeave={handleLeave}

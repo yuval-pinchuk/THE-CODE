@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Axis, Grid, LineValues, PublicRoomState } from "@shared/types";
 import Game from "./screens/Game";
 import Lobby from "./screens/Lobby";
@@ -8,6 +8,7 @@ import {
   guessLine,
   joinRoom,
   leaveRoom,
+  onConnect,
   onRoomState,
   setCode,
   solveCode,
@@ -26,44 +27,51 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkRoomCode, setLinkRoomCode] = useState(() => readRoomFromUrl());
+  const rejoinInFlight = useRef(false);
+  const leavingRef = useRef(false);
 
   useEffect(() => onRoomState(setState), []);
 
   useEffect(() => {
-    const urlRoom = readRoomFromUrl();
-    const savedRoom = localStorage.getItem(ROOM_KEY);
-    const savedName = localStorage.getItem(NAME_KEY);
-    const savedPlayer = localStorage.getItem(PLAYER_KEY);
+    async function rejoinFromStorage() {
+      if (leavingRef.current || rejoinInFlight.current) return;
 
-    // Prefer URL room for a fresh invite join; only auto-reconnect when it matches.
-    if (urlRoom && savedRoom && urlRoom !== savedRoom) return;
-    if (!savedRoom || !savedName || !savedPlayer) return;
+      const urlRoom = readRoomFromUrl();
+      const savedRoom = localStorage.getItem(ROOM_KEY);
+      const savedName = localStorage.getItem(NAME_KEY);
+      const savedPlayer = localStorage.getItem(PLAYER_KEY);
 
-    let cancelled = false;
-    (async () => {
-      setBusy(true);
-      const res = await joinRoom({
-        name: savedName,
-        roomCode: savedRoom,
-        playerId: savedPlayer,
-      });
-      if (cancelled) return;
-      setBusy(false);
-      if (!res.ok) {
-        localStorage.removeItem(ROOM_KEY);
-        return;
+      // Prefer URL room for a fresh invite join; only auto-reconnect when it matches.
+      if (urlRoom && savedRoom && urlRoom !== savedRoom) return;
+      if (!savedRoom || !savedName || !savedPlayer) return;
+
+      rejoinInFlight.current = true;
+      try {
+        const res = await joinRoom({
+          name: savedName,
+          roomCode: savedRoom,
+          playerId: savedPlayer,
+        });
+        if (leavingRef.current) return;
+        if (!res.ok) {
+          localStorage.removeItem(ROOM_KEY);
+          return;
+        }
+        if (res.playerId) {
+          localStorage.setItem(PLAYER_KEY, res.playerId);
+          setPlayerId(res.playerId);
+        }
+        setRoomInUrl(savedRoom);
+        if (res.state) setState(res.state);
+      } finally {
+        rejoinInFlight.current = false;
       }
-      if (res.playerId) {
-        localStorage.setItem(PLAYER_KEY, res.playerId);
-        setPlayerId(res.playerId);
-      }
-      setRoomInUrl(savedRoom);
-      if (res.state) setState(res.state);
-    })();
+    }
 
-    return () => {
-      cancelled = true;
-    };
+    void rejoinFromStorage();
+    return onConnect(() => {
+      void rejoinFromStorage();
+    });
   }, []);
 
   async function handleJoin(name: string, roomCode: string) {
@@ -123,6 +131,7 @@ export default function App() {
   }
 
   async function handleLeave() {
+    leavingRef.current = true;
     setBusy(true);
     setError(null);
     await leaveRoom();
@@ -131,6 +140,7 @@ export default function App() {
     setLinkRoomCode(null);
     setBusy(false);
     setState(null);
+    leavingRef.current = false;
   }
 
   const phase = state?.phase;

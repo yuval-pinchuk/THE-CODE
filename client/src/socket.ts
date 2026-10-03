@@ -63,3 +63,10 @@ export function onRoomState(handler: (state: PublicRoomState) => void) {
     socket.off("room:state", handler);
   };
 }
+
+export function onConnect(handler: () => void) {
+  socket.on("connect", handler);
+  return () => {
+    socket.off("connect", handler);
+  };
+}

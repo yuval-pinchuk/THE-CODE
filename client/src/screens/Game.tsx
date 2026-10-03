@@ -7,7 +7,7 @@ import type {
   PublicRoomState,
 } from "@shared/types";
 import Coins from "../components/Coins";
-import DeductionMatrix from "../components/DeductionMatrix";
+import DeductionMatrix, { type SolvedLine } from "../components/DeductionMatrix";
 import DigitTray from "../components/DigitTray";
 import GuessPanel from "../components/GuessPanel";
 import LabeledGrid from "../components/LabeledGrid";
@@ -22,6 +22,8 @@ type Props = {
   onLeave: () => void;
 };
 
+type HistoryFilter = "all" | "me" | "opponent";
+
 export default function Game({
   state,
   playerId,
@@ -34,6 +36,7 @@ export default function Game({
   const [view, setView] = useState<"code" | "notes">("notes");
   const [solveOpen, setSolveOpen] = useState(false);
   const [guessPopup, setGuessPopup] = useState<GuessHistoryEntry | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
   const [solveGrid, setSolveGrid] = useState<(number | null)[][]>([
     [null, null, null],
     [null, null, null],
@@ -47,6 +50,33 @@ export default function Game({
 
   const myTurn = state.turnPlayerId === playerId && !state.paused && state.phase === "playing";
   const opponent = state.players.find((p) => p.id !== playerId);
+
+  const solvedLines = useMemo<SolvedLine[]>(
+    () =>
+      state.history
+        .filter(
+          (entry): entry is GuessHistoryEntry & { kind: "guess" } =>
+            entry.kind === "guess" &&
+            entry.playerId === playerId &&
+            entry.gold === 3,
+        )
+        .map((entry) => ({
+          id: entry.id,
+          axis: entry.axis,
+          index: entry.index,
+          values: entry.values,
+        })),
+    [state.history, playerId],
+  );
+
+  const filteredHistory = useMemo(() => {
+    const list = [...state.history].reverse();
+    if (historyFilter === "me") return list.filter((e) => e.playerId === playerId);
+    if (historyFilter === "opponent") {
+      return list.filter((e) => e.playerId !== playerId);
+    }
+    return list;
+  }, [state.history, historyFilter, playerId]);
 
   useEffect(() => {
     const last = state.history[state.history.length - 1];
@@ -170,7 +200,10 @@ export default function Game({
             <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>
               Cross out numbers that can’t fit each cell.
             </p>
-            <DeductionMatrix storageKey={`ofiny_notes_${state.code}_${playerId}`} />
+            <DeductionMatrix
+              storageKey={`ofiny_notes_${state.code}_${playerId}`}
+              solvedLines={solvedLines}
+            />
           </>
         )}
       </div>
@@ -198,24 +231,55 @@ export default function Game({
             No guesses yet.
           </p>
         ) : (
-          <ul className="history">
-            {[...state.history].reverse().map((entry) => (
-              <li key={entry.id}>
-                {entry.kind === "guess" ? (
-                  <>
-                    <strong>{entry.playerName}</strong> · {entry.label}:{" "}
-                    {entry.values.join(" ")}{" "}
-                    <Coins gold={entry.gold} silver={entry.silver} />
-                  </>
-                ) : (
-                  <>
-                    <strong>{entry.playerName}</strong> tried to solve —{" "}
-                    {entry.correct ? "correct!" : "wrong"}
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
+          <>
+            <div className="line-picker history-filter">
+              <button
+                type="button"
+                className={`chip ${historyFilter === "all" ? "selected" : ""}`}
+                onClick={() => setHistoryFilter("all")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`chip ${historyFilter === "me" ? "selected" : ""}`}
+                onClick={() => setHistoryFilter("me")}
+              >
+                You
+              </button>
+              <button
+                type="button"
+                className={`chip ${historyFilter === "opponent" ? "selected" : ""}`}
+                onClick={() => setHistoryFilter("opponent")}
+              >
+                {opponent?.name ?? "Opponent"}
+              </button>
+            </div>
+            {filteredHistory.length === 0 ? (
+              <p style={{ margin: 0, color: "var(--muted)", fontWeight: 700 }}>
+                No moves for this filter.
+              </p>
+            ) : (
+              <ul className="history">
+                {filteredHistory.map((entry) => (
+                  <li key={entry.id}>
+                    {entry.kind === "guess" ? (
+                      <>
+                        <strong>{entry.playerName}</strong> · {entry.label}:{" "}
+                        {entry.values.join(" ")}{" "}
+                        <Coins gold={entry.gold} silver={entry.silver} />
+                      </>
+                    ) : (
+                      <>
+                        <strong>{entry.playerName}</strong> tried to solve —{" "}
+                        {entry.correct ? "correct!" : "wrong"}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </div>
 

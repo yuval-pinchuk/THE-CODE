@@ -5,6 +5,8 @@ type Props = {
   celebration: CelebrationState;
   viewerId: string;
   busy: boolean;
+  /** False when every player has already solved. */
+  canContinue: boolean;
   onContinue: () => void;
   onRestart: () => void;
   onLeave: () => void;
@@ -65,6 +67,7 @@ export default function SolveCelebration({
   celebration,
   viewerId,
   busy,
+  canContinue,
   onContinue,
   onRestart,
   onLeave,
@@ -88,19 +91,23 @@ export default function SolveCelebration({
           {celebration.targetId === viewerId ? "your" : `${celebration.targetName}’s`} code
         </h2>
         <p className="celebration-sub">
-          {isSolver
-            ? "Continue as a spectator, wait to restart, or leave."
-            : "Continue playing, wait to restart, or leave."}
+          {!canContinue
+            ? "Everyone has solved — restart or leave."
+            : isSolver
+              ? "Continue as a spectator, wait to restart, or leave."
+              : "Continue playing, wait to restart, or leave."}
         </p>
         <div className="celebration-actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={busy}
-            onClick={onContinue}
-          >
-            Continue
-          </button>
+          {canContinue ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={onContinue}
+            >
+              Continue
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn-coral"

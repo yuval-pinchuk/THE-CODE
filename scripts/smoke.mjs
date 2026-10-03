@@ -127,13 +127,20 @@ if (afterOne.phase !== "playing") {
 }
 console.log("First player waiting to restart; phase still playing");
 
-// Second player also requests restart → setup for both.
-const setupWait = waitForState(secondSocket, (s) => s.phase === "setup" && s.yourTargetId);
+// Second player also requests restart → lobby (manager starts next round).
+const lobbyWait = waitForState(secondSocket, (s) => s.phase === "lobby");
 const twoRestart = await emit(secondSocket, "game:requestRestart", {});
 if (!twoRestart.ok) throw new Error(twoRestart.error);
-const restarted = await setupWait;
-if (!restarted.yourTargetId) throw new Error("Expected new target after both restart");
-console.log("Both requested restart → setup, target:", restarted.yourTargetName);
+const lobbied = await lobbyWait;
+if (lobbied.phase !== "lobby") throw new Error("Expected lobby after both restart");
+console.log("Both requested restart → lobby");
+
+const setupWait = waitForState(secondSocket, (s) => s.phase === "setup" && s.yourTargetId);
+const startAgain = await emit(a, "game:start", {});
+if (!startAgain.ok) throw new Error(startAgain.error);
+const setupAgain = await setupWait;
+if (!setupAgain.yourTargetId) throw new Error("Expected target after manager start");
+console.log("Manager started → setup, target:", setupAgain.yourTargetName);
 
 a.close();
 b.close();

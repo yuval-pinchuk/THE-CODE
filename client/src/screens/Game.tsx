@@ -432,6 +432,7 @@ export default function Game({
           celebration={state.celebration}
           viewerId={playerId}
           busy={busy}
+          canContinue={state.players.some((p) => !p.hasSolved)}
           onContinue={() => setDismissedCelebrationKey(celebrationKey)}
           onRestart={() => {
             setDismissedCelebrationKey(celebrationKey);

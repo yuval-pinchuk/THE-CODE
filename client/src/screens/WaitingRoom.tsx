@@ -14,7 +14,8 @@ export default function WaitingRoom({ state, busy, onLeave }: Props) {
     <div className="panel">
       <h2>Waiting to restart</h2>
       <p className="lobby-lead">
-        New round starts when everyone still in the room chooses restart (or leaves).
+        When everyone restarts or leaves, you’ll return to the lobby. There you can
+        share the link and the manager starts the next game.
       </p>
 
       <h3 className="waiting-section-title">Ready to restart</h3>
@@ -43,7 +44,7 @@ export default function WaitingRoom({ state, busy, onLeave }: Props) {
           <div className="banner warn">Game continues for the players above.</div>
         </>
       ) : (
-        <div className="banner">Everyone is ready — starting soon…</div>
+        <div className="banner">Everyone is ready — returning to lobby…</div>
       )}
 
       <div style={{ height: "0.85rem" }} />

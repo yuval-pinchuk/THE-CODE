@@ -193,13 +193,12 @@ function repairAssignmentsAfterLeave(room: Room, leftId: string): void {
   }
 }
 
-function maybeStartNextRound(room: Room): boolean {
+/** When every connected player has opted to restart, return to lobby for manager Start. */
+function maybeReturnToLobbyAfterRestartVotes(room: Room): boolean {
   const connected = room.players.filter((p) => p.connected);
-  if (connected.length < MIN_PLAYERS) return false;
+  if (connected.length === 0) return false;
   if (!connected.every((p) => p.wantsRestart)) return false;
-
-  room.phase = "setup";
-  resetRoundState(room);
+  returnToLobby(room);
   return true;
 }
 
@@ -219,7 +218,7 @@ function afterPlayerRemoved(room: Room, removedId: string, hadTurn: boolean): vo
     room.turnPlayerId = firstActive(room, false);
   }
 
-  maybeStartNextRound(room);
+  maybeReturnToLobbyAfterRestartVotes(room);
 }
 
 export function toPublicState(room: Room, viewerId: string): PublicRoomState {
@@ -530,7 +529,7 @@ export function requestRestart(roomCode: string, playerId: string): ActionResult
     room.turnPlayerId = nextActiveAfter(room, playerId);
   }
 
-  maybeStartNextRound(room);
+  maybeReturnToLobbyAfterRestartVotes(room);
 
   return { ok: true, room, states: broadcastStates(room) };
 }

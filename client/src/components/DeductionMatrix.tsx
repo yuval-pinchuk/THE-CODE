@@ -21,7 +21,7 @@ type NotesState = {
 };
 
 const SOLE_SURVIVOR_MS = 2000;
-const LONG_PRESS_MS = 3000;
+const LONG_PRESS_MS = 1500;
 
 function defaultCrossed(): boolean[][][] {
   return Array.from({ length: 3 }, () =>

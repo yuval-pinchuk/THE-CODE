@@ -20,6 +20,9 @@ type NotesState = {
   appliedSolvedIds: string[];
 };
 
+const SOLE_SURVIVOR_MS = 2000;
+const LONG_PRESS_MS = 3000;
+
 function defaultCrossed(): boolean[][][] {
   return Array.from({ length: 3 }, () =>
     Array.from({ length: 3 }, () => Array.from({ length: 9 }, () => false)),
@@ -41,51 +44,33 @@ function soleSurvivor(cell: boolean[]): number | null {
 }
 
 function loadNotes(storageKey: string): NotesState {
+  let notes: NotesState;
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) {
-      return { crossed: defaultCrossed(), locked: defaultLocked(), appliedSolvedIds: [] };
+      notes = { crossed: defaultCrossed(), locked: defaultLocked(), appliedSolvedIds: [] };
+    } else {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        notes = {
+          crossed: parsed as boolean[][][],
+          locked: defaultLocked(),
+          appliedSolvedIds: [],
+        };
+      } else {
+        const obj = parsed as Partial<NotesState>;
+        notes = {
+          crossed: obj.crossed ?? defaultCrossed(),
+          locked: obj.locked ?? defaultLocked(),
+          appliedSolvedIds: obj.appliedSolvedIds ?? [],
+        };
+      }
     }
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) {
-      return {
-        crossed: parsed as boolean[][][],
-        locked: defaultLocked(),
-        appliedSolvedIds: [],
-      };
-    }
-    const obj = parsed as Partial<NotesState>;
-    return {
-      crossed: obj.crossed ?? defaultCrossed(),
-      locked: obj.locked ?? defaultLocked(),
-      appliedSolvedIds: obj.appliedSolvedIds ?? [],
-    };
   } catch {
-    return { crossed: defaultCrossed(), locked: defaultLocked(), appliedSolvedIds: [] };
+    notes = { crossed: defaultCrossed(), locked: defaultLocked(), appliedSolvedIds: [] };
   }
-}
-
-function applySolvedToNotes(notes: NotesState, line: SolvedLine): NotesState {
-  if (notes.appliedSolvedIds.includes(line.id)) return notes;
-
-  const crossed = notes.crossed.map((row) => row.map((cell) => [...cell]));
-  const locked = notes.locked.map((row) => [...row]);
-
-  for (let i = 0; i < 3; i++) {
-    const r = line.axis === "row" ? line.index : i;
-    const c = line.axis === "col" ? line.index : i;
-    const value = line.values[i];
-    for (let d = 0; d < 9; d++) {
-      crossed[r][c][d] = d + 1 !== value;
-    }
-    locked[r][c] = value;
-  }
-
-  return {
-    crossed,
-    locked,
-    appliedSolvedIds: [...notes.appliedSolvedIds, line.id],
-  };
+  cascadeBigDigits(notes);
+  return notes;
 }
 
 function cloneNotes(prev: NotesState): NotesState {
@@ -96,18 +81,122 @@ function cloneNotes(prev: NotesState): NotesState {
   };
 }
 
+function reconcileLocks(next: NotesState) {
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const survivor = soleSurvivor(next.crossed[r][c]);
+      if (survivor === null) {
+        next.locked[r][c] = null;
+      } else if (next.locked[r][c] !== null && next.locked[r][c] !== survivor) {
+        next.locked[r][c] = null;
+      }
+    }
+  }
+}
+
+/** When a cell shows a single digit big, keep that digit exclusive board-wide. */
+function promoteBigDigit(next: NotesState, r: number, c: number, digit: number) {
+  for (let d = 0; d < 9; d++) {
+    next.crossed[r][c][d] = d + 1 !== digit;
+  }
+
+  const idx = digit - 1;
+  for (let rr = 0; rr < 3; rr++) {
+    for (let cc = 0; cc < 3; cc++) {
+      if (rr === r && cc === c) continue;
+      if (next.locked[rr][cc] === digit) continue;
+      next.crossed[rr][cc][idx] = true;
+    }
+  }
+  reconcileLocks(next);
+}
+
+function cascadeBigDigits(next: NotesState) {
+  for (let pass = 0; pass < 9; pass++) {
+    let changed = false;
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        const digit = next.locked[r][c] ?? soleSurvivor(next.crossed[r][c]);
+        if (digit === null) continue;
+
+        let localChange = false;
+        for (let d = 0; d < 9; d++) {
+          const shouldCross = d + 1 !== digit;
+          if (next.crossed[r][c][d] !== shouldCross) {
+            next.crossed[r][c][d] = shouldCross;
+            localChange = true;
+          }
+        }
+
+        const idx = digit - 1;
+        for (let rr = 0; rr < 3; rr++) {
+          for (let cc = 0; cc < 3; cc++) {
+            if (rr === r && cc === c) continue;
+            if (next.locked[rr][cc] === digit) continue;
+            if (!next.crossed[rr][cc][idx]) {
+              next.crossed[rr][cc][idx] = true;
+              localChange = true;
+            }
+          }
+        }
+
+        if (localChange) {
+          reconcileLocks(next);
+          changed = true;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+}
+
+function lockCell(next: NotesState, r: number, c: number) {
+  const survivor = soleSurvivor(next.crossed[r][c]);
+  if (survivor === null) return;
+  next.locked[r][c] = survivor;
+  promoteBigDigit(next, r, c, survivor);
+  cascadeBigDigits(next);
+}
+
+function applySolvedToNotes(notes: NotesState, line: SolvedLine): NotesState {
+  if (notes.appliedSolvedIds.includes(line.id)) return notes;
+
+  const next = cloneNotes(notes);
+
+  for (let i = 0; i < 3; i++) {
+    const r = line.axis === "row" ? line.index : i;
+    const c = line.axis === "col" ? line.index : i;
+    const value = line.values[i];
+    for (let d = 0; d < 9; d++) {
+      next.crossed[r][c][d] = d + 1 !== value;
+    }
+    next.locked[r][c] = value;
+    promoteBigDigit(next, r, c, value);
+  }
+  cascadeBigDigits(next);
+  next.appliedSolvedIds.push(line.id);
+  return next;
+}
+
 export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props) {
   const [notes, setNotes] = useState<NotesState>(() => loadNotes(storageKey));
   const [editing, setEditing] = useState<{ r: number; c: number } | null>(null);
+  const [holding, setHolding] = useState<{ r: number; c: number; digitIndex: number } | null>(
+    null,
+  );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<{ r: number; c: number } | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressDone = useRef(false);
   const notesRef = useRef(notes);
   notesRef.current = notes;
 
   useEffect(() => {
     setNotes(loadNotes(storageKey));
     setEditing(null);
+    setHolding(null);
     clearTimer();
+    clearLongPress();
   }, [storageKey]);
 
   useEffect(() => {
@@ -132,7 +221,13 @@ export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props)
     clearTimer();
   }, [solvedLines]);
 
-  useEffect(() => () => clearTimer(), []);
+  useEffect(
+    () => () => {
+      clearTimer();
+      clearLongPress();
+    },
+    [],
+  );
 
   function clearTimer() {
     if (timerRef.current) {
@@ -142,9 +237,12 @@ export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props)
     pendingRef.current = null;
   }
 
-  function lockCell(next: NotesState, r: number, c: number) {
-    const survivor = soleSurvivor(next.crossed[r][c]);
-    if (survivor !== null) next.locked[r][c] = survivor;
+  function clearLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    setHolding(null);
   }
 
   function commitPending(next: NotesState, except?: { r: number; c: number }) {
@@ -175,20 +273,7 @@ export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props)
       setEditing((cur) => (cur?.r === r && cur?.c === c ? null : cur));
       pendingRef.current = null;
       timerRef.current = null;
-    }, 5000);
-  }
-
-  function reconcileLocks(next: NotesState) {
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 3; c++) {
-        const survivor = soleSurvivor(next.crossed[r][c]);
-        if (survivor === null) {
-          next.locked[r][c] = null;
-        } else if (next.locked[r][c] !== null && next.locked[r][c] !== survivor) {
-          next.locked[r][c] = null;
-        }
-      }
-    }
+    }, SOLE_SURVIVOR_MS);
   }
 
   function toggle(r: number, c: number, digitIndex: number) {
@@ -197,10 +282,47 @@ export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props)
       commitPending(next, { r, c });
       next.crossed[r][c][digitIndex] = !next.crossed[r][c][digitIndex];
       reconcileLocks(next);
+      const survivor = soleSurvivor(next.crossed[r][c]);
+      if (survivor !== null) {
+        promoteBigDigit(next, r, c, survivor);
+        cascadeBigDigits(next);
+      }
       queueMicrotask(() => armPending(r, c, next.crossed, next.locked));
       return next;
     });
     setEditing({ r, c });
+  }
+
+  function longPressSelect(r: number, c: number, digitIndex: number) {
+    const digit = digitIndex + 1;
+    longPressDone.current = true;
+    clearLongPress();
+    clearTimer();
+    setNotes((prev) => {
+      const next = cloneNotes(prev);
+      commitPending(next, { r, c });
+      for (let d = 0; d < 9; d++) {
+        next.crossed[r][c][d] = d !== digitIndex;
+      }
+      next.locked[r][c] = digit;
+      promoteBigDigit(next, r, c, digit);
+      cascadeBigDigits(next);
+      return next;
+    });
+    setEditing(null);
+  }
+
+  function onDigitPointerDown(r: number, c: number, digitIndex: number) {
+    longPressDone.current = false;
+    clearLongPress();
+    setHolding({ r, c, digitIndex });
+    longPressTimer.current = setTimeout(() => {
+      longPressSelect(r, c, digitIndex);
+    }, LONG_PRESS_MS);
+  }
+
+  function onDigitPointerEnd() {
+    clearLongPress();
   }
 
   function openBigCell(r: number, c: number) {
@@ -224,6 +346,7 @@ export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props)
 
   function reset() {
     clearTimer();
+    clearLongPress();
     setEditing(null);
     setNotes({
       crossed: defaultCrossed(),
@@ -232,19 +355,11 @@ export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props)
     });
   }
 
-  // Auto-arm pending for sole-survivor cells that aren't locked/editing
   useEffect(() => {
     for (let r = 0; r < 3; r++) {
       for (let c = 0; c < 3; c++) {
         const survivor = soleSurvivor(notes.crossed[r][c]);
-        const isEditing = editing?.r === r && editing?.c === c;
         if (survivor === null || notes.locked[r][c] !== null) continue;
-        if (isEditing) {
-          if (!(pendingRef.current?.r === r && pendingRef.current?.c === c)) {
-            armPending(r, c, notes.crossed, notes.locked);
-          }
-          continue;
-        }
         if (!(pendingRef.current?.r === r && pendingRef.current?.c === c)) {
           armPending(r, c, notes.crossed, notes.locked);
         }
@@ -298,20 +413,36 @@ export default function DeductionMatrix({ storageKey, solvedLines = [] }: Props)
                   className="deduction-cell"
                   onClick={() => focusCell(r, c)}
                 >
-                  {Array.from({ length: 9 }, (_, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      className={`deduction-digit ${notes.crossed[r][c][i] ? "out" : ""}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggle(r, c, i);
-                      }}
-                      aria-label={`Toggle ${i + 1} in ${rowLabel}${colLabel}`}
-                    >
-                      {i + 1}
-                    </button>
-                  ))}
+                  {Array.from({ length: 9 }, (_, i) => {
+                    const isHolding =
+                      holding?.r === r && holding?.c === c && holding.digitIndex === i;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        className={`deduction-digit ${notes.crossed[r][c][i] ? "out" : ""} ${isHolding ? "holding" : ""}`}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                          onDigitPointerDown(r, c, i);
+                        }}
+                        onPointerUp={onDigitPointerEnd}
+                        onPointerCancel={onDigitPointerEnd}
+                        onLostPointerCapture={onDigitPointerEnd}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (longPressDone.current) {
+                            longPressDone.current = false;
+                            return;
+                          }
+                          toggle(r, c, i);
+                        }}
+                        aria-label={`Toggle ${i + 1} in ${rowLabel}${colLabel}. Hold to lock.`}
+                      >
+                        {i + 1}
+                      </button>
+                    );
+                  })}
                 </div>
               );
             })}

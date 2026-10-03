@@ -146,10 +146,7 @@ export default function Lobby({
 
       {state.players.length < 2 ? (
         <div className="share-card">
-          <div className="banner warn">Share this link so a friend can join</div>
-          <div className="share-url" title={inviteUrl}>
-            {inviteUrl}
-          </div>
+          <div className="banner warn">Share this room so a friend can join</div>
           <div className="btn-row share-actions">
             <button type="button" className="btn btn-primary btn-half" onClick={copyInvite}>
               Copy link

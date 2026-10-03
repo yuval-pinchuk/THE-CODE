@@ -187,19 +187,6 @@ button {
   gap: 0.65rem;
 }
 
-.share-url {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--navy);
-  background: rgba(255, 255, 255, 0.85);
-  border: 2px solid rgba(11, 61, 74, 0.12);
-  border-radius: 12px;
-  padding: 0.65rem 0.75rem;
-  overflow-wrap: anywhere;
-  word-break: break-all;
-  user-select: all;
-}
-
 .share-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

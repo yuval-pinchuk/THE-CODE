@@ -76,7 +76,12 @@ export default function Setup({ state, playerId, busy, error, onSubmit }: Props)
     return (
       <div className="panel">
         <h2>Code locked in</h2>
-        <div className="banner">Waiting for opponent to finish their code…</div>
+        {state.yourTargetName ? (
+          <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>
+            You’ll be solving for <strong>{state.yourTargetName}</strong>.
+          </p>
+        ) : null}
+        <div className="banner">Waiting for everyone to finish their codes…</div>
         {state.yourGrid ? (
           <div style={{ marginTop: "1rem" }}>
             <LabeledGrid values={state.yourGrid} readOnly />
@@ -89,6 +94,11 @@ export default function Setup({ state, playerId, busy, error, onSubmit }: Props)
   return (
     <div className="panel">
       <h2>Create your code</h2>
+      {state.yourTargetName ? (
+        <p style={{ marginTop: 0, color: "var(--navy)", fontWeight: 800 }}>
+          You’re solving for {state.yourTargetName}
+        </p>
+      ) : null}
       <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>
         Place each number 1–9 once on the grid.
       </p>

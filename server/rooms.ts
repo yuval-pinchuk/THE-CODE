@@ -1,6 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type {
+  AssignmentEdge,
   Axis,
+  CelebrationState,
   Grid,
   HistoryEntry,
   LineValues,
@@ -18,7 +20,8 @@ import {
 } from "./game.js";
 
 const RECONNECT_GRACE_MS = 60_000;
-const MAX_PLAYERS = 2;
+const MAX_PLAYERS = 8;
+const MIN_PLAYERS = 2;
 
 interface Player {
   id: string;
@@ -26,6 +29,7 @@ interface Player {
   socketId: string | null;
   connected: boolean;
   secretGrid: Grid | null;
+  hasSolved: boolean;
   disconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -36,7 +40,8 @@ interface Room {
   phase: Phase;
   turnPlayerId: string | null;
   history: HistoryEntry[];
-  winnerId: string | null;
+  assignments: Map<string, string>;
+  celebration: CelebrationState | null;
   createdAt: number;
 }
 
@@ -58,8 +63,77 @@ function isNameTaken(room: Room, name: string, exceptPlayerId?: string): boolean
   );
 }
 
-function getOpponent(room: Room, playerId: string): Player | undefined {
-  return room.players.find((p) => p.id !== playerId);
+/** Single random cycle derangement: each player targets the next in a shuffled ring. */
+function createDerangement(playerIds: string[]): Map<string, string> {
+  if (playerIds.length < 2) return new Map();
+  const ids = [...playerIds];
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  const map = new Map<string, string>();
+  for (let i = 0; i < ids.length; i++) {
+    map.set(ids[i], ids[(i + 1) % ids.length]);
+  }
+  return map;
+}
+
+function assignmentEdges(room: Room): AssignmentEdge[] {
+  return [...room.assignments.entries()].map(([fromId, toId]) => ({ fromId, toId }));
+}
+
+function getTarget(room: Room, playerId: string): Player | undefined {
+  const targetId = room.assignments.get(playerId);
+  if (!targetId) return undefined;
+  return room.players.find((p) => p.id === targetId);
+}
+
+function unsolvedPlayers(room: Room): Player[] {
+  return room.players.filter((p) => !p.hasSolved);
+}
+
+function nextUnsolvedAfter(room: Room, playerId: string): string | null {
+  const active = unsolvedPlayers(room);
+  if (active.length === 0) return null;
+  const idx = room.players.findIndex((p) => p.id === playerId);
+  for (let step = 1; step <= room.players.length; step++) {
+    const candidate = room.players[(idx + step) % room.players.length];
+    if (!candidate.hasSolved) return candidate.id;
+  }
+  return active[0]?.id ?? null;
+}
+
+function firstUnsolved(room: Room, preferNonManager = true): string | null {
+  if (preferNonManager) {
+    const nonManager = room.players.find(
+      (p) => p.id !== room.managerId && !p.hasSolved,
+    );
+    if (nonManager) return nonManager.id;
+  }
+  return unsolvedPlayers(room)[0]?.id ?? null;
+}
+
+function resetRoundState(room: Room): void {
+  room.assignments = createDerangement(room.players.map((p) => p.id));
+  room.history = [];
+  room.celebration = null;
+  room.turnPlayerId = null;
+  for (const p of room.players) {
+    p.secretGrid = null;
+    p.hasSolved = false;
+  }
+}
+
+function returnToLobby(room: Room): void {
+  room.phase = "lobby";
+  room.turnPlayerId = null;
+  room.history = [];
+  room.celebration = null;
+  room.assignments = new Map();
+  for (const p of room.players) {
+    p.secretGrid = null;
+    p.hasSolved = false;
+  }
 }
 
 function promoteManager(room: Room): void {
@@ -75,20 +149,32 @@ function isPaused(room: Room): boolean {
   return room.players.some((p) => !p.connected);
 }
 
+function newPlayer(
+  id: string,
+  name: string,
+  socketId: string,
+): Player {
+  return {
+    id,
+    name,
+    socketId,
+    connected: true,
+    secretGrid: null,
+    hasSolved: false,
+    disconnectTimer: null,
+  };
+}
+
 export function toPublicState(room: Room, viewerId: string): PublicRoomState {
   const viewer = room.players.find((p) => p.id === viewerId);
-  const winner = room.winnerId
-    ? room.players.find((p) => p.id === room.winnerId)
-    : undefined;
+  const target = getTarget(room, viewerId);
+  const unsolvedCount = unsolvedPlayers(room).length;
 
   let message: string | null = null;
-  if (isPaused(room) && room.phase !== "finished") {
-    message = "Opponent disconnected — waiting for reconnect…";
-  } else if (room.phase === "finished" && winner) {
-    message =
-      winner.id === viewerId
-        ? "You cracked the code! You win!"
-        : `${winner.name} cracked your code.`;
+  if (isPaused(room)) {
+    message = "Waiting for a player to reconnect…";
+  } else if (viewer?.hasSolved && room.phase === "playing") {
+    message = "You cracked your target’s code — waiting for others…";
   }
 
   return {
@@ -99,12 +185,16 @@ export function toPublicState(room: Room, viewerId: string): PublicRoomState {
       name: p.name,
       connected: p.connected,
       hasCode: p.secretGrid !== null,
+      hasSolved: p.hasSolved,
       isManager: p.id === room.managerId,
     })),
     turnPlayerId: room.turnPlayerId,
     history: room.history,
-    winnerId: room.winnerId,
-    winnerName: winner?.name ?? null,
+    assignments: assignmentEdges(room),
+    yourTargetId: target?.id ?? null,
+    yourTargetName: target?.name ?? null,
+    celebration: room.celebration,
+    unsolvedCount,
     yourGrid: viewer?.secretGrid ? cloneGrid(viewer.secretGrid) : null,
     paused: isPaused(room),
     message,
@@ -158,14 +248,7 @@ export function joinRoom(
 
   if (!room) {
     const playerId = randomUUID();
-    const player: Player = {
-      id: playerId,
-      name,
-      socketId,
-      connected: true,
-      secretGrid: null,
-      disconnectTimer: null,
-    };
+    const player = newPlayer(playerId, name, socketId);
     room = {
       code: roomCode,
       managerId: playerId,
@@ -173,7 +256,8 @@ export function joinRoom(
       phase: "lobby",
       turnPlayerId: null,
       history: [],
-      winnerId: null,
+      assignments: new Map(),
+      celebration: null,
       createdAt: Date.now(),
     };
     rooms.set(roomCode, room);
@@ -190,7 +274,7 @@ export function joinRoom(
   }
 
   if (room.players.length >= MAX_PLAYERS) {
-    return { ok: false, error: "Room is full." };
+    return { ok: false, error: "Room is full (max 8 players)." };
   }
 
   if (isNameTaken(room, name)) {
@@ -198,15 +282,7 @@ export function joinRoom(
   }
 
   const playerId = randomUUID();
-  room.players.push({
-    id: playerId,
-    name,
-    socketId,
-    connected: true,
-    secretGrid: null,
-    disconnectTimer: null,
-  });
-
+  room.players.push(newPlayer(playerId, name, socketId));
 
   return {
     ok: true,
@@ -233,17 +309,13 @@ export function startGame(roomCode: string, playerId: string): ActionResult {
   if (!room) return { ok: false, error: "Room not found." };
   if (room.managerId !== playerId) return { ok: false, error: "Only the manager can start." };
   if (room.phase !== "lobby") return { ok: false, error: "Game already started." };
-  if (room.players.filter((p) => p.connected).length < 2) {
-    return { ok: false, error: "Need 2 players to start." };
+  const connected = room.players.filter((p) => p.connected).length;
+  if (connected < MIN_PLAYERS) {
+    return { ok: false, error: `Need at least ${MIN_PLAYERS} players to start.` };
   }
 
   room.phase = "setup";
-  for (const p of room.players) {
-    p.secretGrid = null;
-  }
-  room.history = [];
-  room.winnerId = null;
-  room.turnPlayerId = null;
+  resetRoundState(room);
 
   return { ok: true, room, states: broadcastStates(room) };
 }
@@ -256,7 +328,7 @@ export function setCode(
   const room = rooms.get(roomCode);
   if (!room) return { ok: false, error: "Room not found." };
   if (room.phase !== "setup") return { ok: false, error: "Not in setup phase." };
-  if (isPaused(room)) return { ok: false, error: "Waiting for opponent to reconnect." };
+  if (isPaused(room)) return { ok: false, error: "Waiting for a player to reconnect." };
   if (!isValidCode(grid)) {
     return { ok: false, error: "Code must use each number 1–9 exactly once." };
   }
@@ -267,12 +339,10 @@ export function setCode(
 
   player.secretGrid = cloneGrid(grid);
 
-  const bothReady = room.players.every((p) => p.secretGrid !== null);
-  if (bothReady) {
+  const allReady = room.players.every((p) => p.secretGrid !== null);
+  if (allReady) {
     room.phase = "playing";
-    // Non-manager goes first
-    const first = room.players.find((p) => p.id !== room.managerId) ?? room.players[0];
-    room.turnPlayerId = first.id;
+    room.turnPlayerId = firstUnsolved(room);
   }
 
   return { ok: true, room, states: broadcastStates(room) };
@@ -288,8 +358,11 @@ export function guessLine(
   const room = rooms.get(roomCode);
   if (!room) return { ok: false, error: "Room not found." };
   if (room.phase !== "playing") return { ok: false, error: "Game is not in progress." };
-  if (isPaused(room)) return { ok: false, error: "Waiting for opponent to reconnect." };
+  if (room.celebration) return { ok: false, error: "Dismiss the celebration first." };
+  if (isPaused(room)) return { ok: false, error: "Waiting for a player to reconnect." };
   if (room.turnPlayerId !== playerId) return { ok: false, error: "Not your turn." };
+  const self = room.players.find((p) => p.id === playerId);
+  if (self?.hasSolved) return { ok: false, error: "You already solved your target." };
   if (axis !== "row" && axis !== "col") return { ok: false, error: "Invalid axis." };
   if (index !== 0 && index !== 1 && index !== 2) {
     return { ok: false, error: "Invalid row/column." };
@@ -299,12 +372,12 @@ export function guessLine(
   }
 
   const player = room.players.find((p) => p.id === playerId);
-  const opponent = getOpponent(room, playerId);
-  if (!player || !opponent?.secretGrid) {
-    return { ok: false, error: "Opponent code missing." };
+  const target = getTarget(room, playerId);
+  if (!player || !target?.secretGrid) {
+    return { ok: false, error: "Target code missing." };
   }
 
-  const truth = getLine(opponent.secretGrid, axis, index);
+  const truth = getLine(target.secretGrid, axis, index);
   const { gold, silver } = scoreLine(values, truth);
 
   room.history.push({
@@ -320,7 +393,7 @@ export function guessLine(
     silver,
   });
 
-  room.turnPlayerId = opponent.id;
+  room.turnPlayerId = nextUnsolvedAfter(room, playerId);
 
   return { ok: true, room, states: broadcastStates(room) };
 }
@@ -333,35 +406,83 @@ export function solve(
   const room = rooms.get(roomCode);
   if (!room) return { ok: false, error: "Room not found." };
   if (room.phase !== "playing") return { ok: false, error: "Game is not in progress." };
-  if (isPaused(room)) return { ok: false, error: "Waiting for opponent to reconnect." };
+  if (room.celebration) return { ok: false, error: "Dismiss the celebration first." };
+  if (isPaused(room)) return { ok: false, error: "Waiting for a player to reconnect." };
   if (room.turnPlayerId !== playerId) return { ok: false, error: "Not your turn." };
+  const self = room.players.find((p) => p.id === playerId);
+  if (self?.hasSolved) return { ok: false, error: "You already solved your target." };
   if (!isValidCode(grid)) {
     return { ok: false, error: "Solve must use each number 1–9 exactly once." };
   }
 
   const player = room.players.find((p) => p.id === playerId);
-  const opponent = getOpponent(room, playerId);
-  if (!player || !opponent?.secretGrid) {
-    return { ok: false, error: "Opponent code missing." };
+  const target = getTarget(room, playerId);
+  if (!player || !target?.secretGrid) {
+    return { ok: false, error: "Target code missing." };
   }
 
-  const correct = gridsEqual(grid, opponent.secretGrid);
+  const correct = gridsEqual(grid, target.secretGrid);
 
   room.history.push({
     kind: "solve",
     id: randomUUID(),
     playerId,
     playerName: player.name,
+    targetId: target.id,
+    targetName: target.name,
     correct,
   });
 
   if (correct) {
-    room.phase = "finished";
-    room.winnerId = playerId;
-    room.turnPlayerId = null;
+    player.hasSolved = true;
+    room.celebration = {
+      solverId: player.id,
+      solverName: player.name,
+      targetId: target.id,
+      targetName: target.name,
+    };
+    room.turnPlayerId = nextUnsolvedAfter(room, playerId);
   } else {
-    room.turnPlayerId = opponent.id;
+    room.turnPlayerId = nextUnsolvedAfter(room, playerId);
   }
+
+  return { ok: true, room, states: broadcastStates(room) };
+}
+
+export function continueAfterSolve(roomCode: string, playerId: string): ActionResult {
+  const room = rooms.get(roomCode);
+  if (!room) return { ok: false, error: "Room not found." };
+  if (!room.players.some((p) => p.id === playerId)) {
+    return { ok: false, error: "Player not in room." };
+  }
+  if (!room.celebration) return { ok: false, error: "Nothing to continue." };
+  if (unsolvedPlayers(room).length <= 1) {
+    return { ok: false, error: "Game is over — leave or restart." };
+  }
+
+  room.celebration = null;
+  if (!room.turnPlayerId || room.players.find((p) => p.id === room.turnPlayerId)?.hasSolved) {
+    room.turnPlayerId = firstUnsolved(room, false);
+  }
+
+  return { ok: true, room, states: broadcastStates(room) };
+}
+
+export function restartGame(roomCode: string, playerId: string): ActionResult {
+  const room = rooms.get(roomCode);
+  if (!room) return { ok: false, error: "Room not found." };
+  if (!room.players.some((p) => p.id === playerId)) {
+    return { ok: false, error: "Player not in room." };
+  }
+  if (room.phase !== "playing" && room.phase !== "setup" && room.phase !== "finished") {
+    return { ok: false, error: "Cannot restart from lobby." };
+  }
+  if (room.players.filter((p) => p.connected).length < MIN_PLAYERS) {
+    return { ok: false, error: `Need at least ${MIN_PLAYERS} players to restart.` };
+  }
+
+  room.phase = "setup";
+  resetRoundState(room);
 
   return { ok: true, room, states: broadcastStates(room) };
 }
@@ -396,15 +517,8 @@ export function handleDisconnect(
 
       promoteManager(current);
 
-      if (current.phase !== "lobby" && current.phase !== "finished") {
-        // Mid-game permanent leave: end or return to lobby with one player
-        current.phase = "lobby";
-        current.turnPlayerId = null;
-        current.history = [];
-        current.winnerId = null;
-        for (const p of current.players) {
-          p.secretGrid = null;
-        }
+      if (current.phase !== "lobby") {
+        returnToLobby(current);
       }
 
       onRoomUpdate(current, broadcastStates(current));
@@ -437,14 +551,8 @@ export function leaveRoom(roomCode: string, playerId: string): ActionResult {
 
   promoteManager(room);
 
-  if (room.phase !== "lobby" && room.phase !== "finished") {
-    room.phase = "lobby";
-    room.turnPlayerId = null;
-    room.history = [];
-    room.winnerId = null;
-    for (const p of room.players) {
-      p.secretGrid = null;
-    }
+  if (room.phase !== "lobby") {
+    returnToLobby(room);
   }
 
   return { ok: true, room, states: broadcastStates(room) };

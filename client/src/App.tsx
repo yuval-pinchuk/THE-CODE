@@ -5,11 +5,13 @@ import Lobby from "./screens/Lobby";
 import Setup from "./screens/Setup";
 import { readRoomFromUrl, setRoomInUrl } from "./roomUrl";
 import {
+  continueAfterSolve,
   guessLine,
   joinRoom,
   leaveRoom,
   onConnect,
   onRoomState,
+  restartGame,
   setCode,
   solveCode,
   startGame,
@@ -130,6 +132,22 @@ export default function App() {
     if (!res.ok) setError(res.error);
   }
 
+  async function handleContinue() {
+    setBusy(true);
+    setError(null);
+    const res = await continueAfterSolve();
+    setBusy(false);
+    if (!res.ok) setError(res.error);
+  }
+
+  async function handleRestart() {
+    setBusy(true);
+    setError(null);
+    const res = await restartGame();
+    setBusy(false);
+    if (!res.ok) setError(res.error);
+  }
+
   async function handleLeave() {
     leavingRef.current = true;
     setBusy(true);
@@ -177,7 +195,7 @@ export default function App() {
         />
       ) : null}
 
-      {state && (phase === "playing" || phase === "finished") && playerId ? (
+      {state && phase === "playing" && playerId ? (
         <Game
           state={state}
           playerId={playerId}
@@ -185,6 +203,8 @@ export default function App() {
           error={error}
           onGuess={handleGuess}
           onSolve={handleSolve}
+          onContinue={handleContinue}
+          onRestart={handleRestart}
           onLeave={handleLeave}
         />
       ) : null}

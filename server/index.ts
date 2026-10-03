@@ -11,11 +11,13 @@ import type {
   SolvePayload,
 } from "../shared/types.js";
 import {
+  continueAfterSolve,
   getConnectedSocketIds,
   guessLine,
   handleDisconnect,
   joinRoom,
   leaveRoom,
+  restartGame,
   setCode,
   startGame,
   solve,
@@ -181,6 +183,36 @@ io.on("connection", (socket) => {
       return;
     }
     const result = solve(data.roomCode, data.playerId, payload?.grid);
+    if (!result.ok) {
+      ack?.({ ok: false, error: result.error });
+      return;
+    }
+    emitStates(result.room.code, result.states);
+    ack?.({ ok: true });
+  });
+
+  socket.on("game:continue", (...args: unknown[]) => {
+    const { ack } = splitAck(args);
+    if (!data.roomCode || !data.playerId) {
+      ack?.({ ok: false, error: "Not in a room." });
+      return;
+    }
+    const result = continueAfterSolve(data.roomCode, data.playerId);
+    if (!result.ok) {
+      ack?.({ ok: false, error: result.error });
+      return;
+    }
+    emitStates(result.room.code, result.states);
+    ack?.({ ok: true });
+  });
+
+  socket.on("game:restart", (...args: unknown[]) => {
+    const { ack } = splitAck(args);
+    if (!data.roomCode || !data.playerId) {
+      ack?.({ ok: false, error: "Not in a room." });
+      return;
+    }
+    const result = restartGame(data.roomCode, data.playerId);
     if (!result.ok) {
       ack?.({ ok: false, error: result.error });
       return;

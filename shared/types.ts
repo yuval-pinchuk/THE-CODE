@@ -15,7 +15,20 @@ export interface PublicPlayer {
   name: string;
   connected: boolean;
   hasCode: boolean;
+  hasSolved: boolean;
   isManager: boolean;
+}
+
+export interface AssignmentEdge {
+  fromId: string;
+  toId: string;
+}
+
+export interface CelebrationState {
+  solverId: string;
+  solverName: string;
+  targetId: string;
+  targetName: string;
 }
 
 export interface GuessHistoryEntry {
@@ -34,6 +47,8 @@ export interface SolveHistoryEntry {
   id: string;
   playerId: string;
   playerName: string;
+  targetId: string;
+  targetName: string;
   correct: boolean;
 }
 
@@ -47,8 +62,11 @@ export interface PublicRoomState {
   players: PublicPlayer[];
   turnPlayerId: string | null;
   history: HistoryEntry[];
-  winnerId: string | null;
-  winnerName: string | null;
+  assignments: AssignmentEdge[];
+  yourTargetId: string | null;
+  yourTargetName: string | null;
+  celebration: CelebrationState | null;
+  unsolvedCount: number;
   yourGrid: Grid | null;
   paused: boolean;
   message: string | null;

@@ -2,6 +2,8 @@ import { FormEvent, useMemo, useState } from "react";
 import type { PublicRoomState } from "@shared/types";
 import { roomInviteUrl } from "../roomUrl";
 
+const MAX_PLAYERS = 8;
+
 type Props = {
   state: PublicRoomState | null;
   playerId: string | null;
@@ -119,18 +121,20 @@ export default function Lobby({
   }
 
   const me = state.players.find((p) => p.id === playerId);
+  const connectedCount = state.players.filter((p) => p.connected).length;
   const canStart =
     me?.isManager &&
-    state.players.filter((p) => p.connected).length === 2 &&
+    connectedCount >= 2 &&
     state.phase === "lobby";
   const canShare = typeof navigator.share === "function";
+  const roomFull = state.players.length >= MAX_PLAYERS;
 
   return (
     <div className="panel">
       <h2>Room {state.code}</h2>
       {error ? <div className="error">{error}</div> : null}
       <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>
-        Waiting for players. Manager starts when both are here.
+        {connectedCount}/{MAX_PLAYERS} players · Manager starts with 2 or more.
       </p>
       <ul className="player-list">
         {state.players.map((p) => (
@@ -144,9 +148,9 @@ export default function Lobby({
         ))}
       </ul>
 
-      {state.players.length < 2 ? (
+      {connectedCount < 2 ? (
         <div className="share-card">
-          <div className="banner warn">Share this room so a friend can join</div>
+          <div className="banner warn">Share this room so friends can join</div>
           <div className="btn-row share-actions">
             <button type="button" className="btn btn-primary btn-half" onClick={copyInvite}>
               Copy link
@@ -159,8 +163,26 @@ export default function Lobby({
           <p className="share-code-hint">Or share code {state.code}</p>
         </div>
       ) : (
-        <div className="banner">Both players ready — manager can start</div>
+        <div className="banner">
+          {roomFull
+            ? "Room full — manager can start"
+            : `${connectedCount} players ready — manager can start (or invite more)`}
+        </div>
       )}
+
+      {connectedCount >= 2 && !roomFull ? (
+        <div className="share-card" style={{ marginTop: "0.65rem" }}>
+          <div className="btn-row share-actions">
+            <button type="button" className="btn btn-primary btn-half" onClick={copyInvite}>
+              Copy link
+            </button>
+            <button type="button" className="btn btn-coral btn-half" onClick={shareInvite}>
+              {canShare ? "Share" : "Copy & share"}
+            </button>
+          </div>
+          {shareStatus ? <p className="share-status">{shareStatus}</p> : null}
+        </div>
+      ) : null}
 
       <div style={{ height: "0.85rem" }} />
       {me?.isManager ? (

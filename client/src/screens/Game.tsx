@@ -6,11 +6,13 @@ import type {
   LineValues,
   PublicRoomState,
 } from "@shared/types";
+import AssignmentCircle from "../components/AssignmentCircle";
 import Coins from "../components/Coins";
 import DeductionMatrix, { type SolvedLine } from "../components/DeductionMatrix";
 import DigitTray from "../components/DigitTray";
 import GuessPanel from "../components/GuessPanel";
 import LabeledGrid from "../components/LabeledGrid";
+import SolveCelebration from "../components/SolveCelebration";
 
 type Props = {
   state: PublicRoomState;
@@ -19,10 +21,10 @@ type Props = {
   error: string | null;
   onGuess: (axis: Axis, index: number, values: LineValues) => void;
   onSolve: (grid: Grid) => void;
+  onContinue: () => void;
+  onRestart: () => void;
   onLeave: () => void;
 };
-
-type HistoryFilter = "all" | "me" | "opponent";
 
 export default function Game({
   state,
@@ -31,12 +33,15 @@ export default function Game({
   error,
   onGuess,
   onSolve,
+  onContinue,
+  onRestart,
   onLeave,
 }: Props) {
   const [view, setView] = useState<"code" | "notes">("notes");
   const [solveOpen, setSolveOpen] = useState(false);
+  const [circleOpen, setCircleOpen] = useState(false);
   const [guessPopup, setGuessPopup] = useState<GuessHistoryEntry | null>(null);
-  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
+  const [historyFilter, setHistoryFilter] = useState<string>("all");
   const [solveGrid, setSolveGrid] = useState<(number | null)[][]>([
     [null, null, null],
     [null, null, null],
@@ -48,8 +53,15 @@ export default function Game({
   });
   const seenHistoryId = useRef<string | null | undefined>(undefined);
 
-  const myTurn = state.turnPlayerId === playerId && !state.paused && state.phase === "playing";
-  const opponent = state.players.find((p) => p.id !== playerId);
+  const me = state.players.find((p) => p.id === playerId);
+  const hasSolved = Boolean(me?.hasSolved);
+  const myTurn =
+    state.turnPlayerId === playerId &&
+    !state.paused &&
+    state.phase === "playing" &&
+    !hasSolved &&
+    !state.celebration;
+  const turnPlayer = state.players.find((p) => p.id === state.turnPlayerId);
 
   const solvedLines = useMemo<SolvedLine[]>(
     () =>
@@ -71,12 +83,9 @@ export default function Game({
 
   const filteredHistory = useMemo(() => {
     const list = [...state.history].reverse();
-    if (historyFilter === "me") return list.filter((e) => e.playerId === playerId);
-    if (historyFilter === "opponent") {
-      return list.filter((e) => e.playerId !== playerId);
-    }
-    return list;
-  }, [state.history, historyFilter, playerId]);
+    if (historyFilter === "all") return list;
+    return list.filter((e) => e.playerId === historyFilter);
+  }, [state.history, historyFilter]);
 
   useEffect(() => {
     const last = state.history[state.history.length - 1];
@@ -84,22 +93,25 @@ export default function Game({
       seenHistoryId.current = null;
       return;
     }
-    // Skip popup for history already present on first sync / reconnect.
     if (seenHistoryId.current === undefined) {
       seenHistoryId.current = last.id;
       return;
     }
     if (last.id === seenHistoryId.current) return;
     seenHistoryId.current = last.id;
-    if (last.kind === "guess") {
+    if (last.kind === "guess" && !state.celebration) {
       setGuessPopup(last);
       setSolveOpen(false);
     }
-  }, [state.history]);
+  }, [state.history, state.celebration]);
 
   useEffect(() => {
     if (!myTurn) setSolveOpen(false);
   }, [myTurn]);
+
+  useEffect(() => {
+    if (state.celebration) setGuessPopup(null);
+  }, [state.celebration]);
 
   const used = useMemo(() => {
     const set = new Set<number>();
@@ -139,6 +151,15 @@ export default function Game({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
       <div className="panel">
+        {state.yourTargetName ? (
+          <button
+            type="button"
+            className="target-chip"
+            onClick={() => setCircleOpen(true)}
+          >
+            Solving for <strong>{state.yourTargetName}</strong>
+          </button>
+        ) : null}
         <div className="legend">
           <span>
             <span className="coin gold" /> Gold = right spot
@@ -148,15 +169,17 @@ export default function Game({
           </span>
         </div>
         <div style={{ height: "0.65rem" }} />
-        {state.phase === "finished" ? (
-          <div className="banner win">{state.message}</div>
-        ) : state.paused ? (
+        {state.paused ? (
           <div className="banner warn">{state.message}</div>
+        ) : hasSolved ? (
+          <div className="banner win">
+            {state.message ?? "You solved your target — waiting for others…"}
+          </div>
         ) : myTurn ? (
           <div className="banner">Your turn — guess a line or try to solve</div>
         ) : (
           <div className="banner warn">
-            Waiting for {opponent?.name ?? "opponent"}…
+            Waiting for {turnPlayer?.name ?? "next player"}…
           </div>
         )}
         {error ? (
@@ -198,7 +221,8 @@ export default function Game({
           <>
             <h2>Deduction board</h2>
             <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>
-              Cross out numbers that can’t fit each cell.
+              Cross out numbers that can’t fit {state.yourTargetName ?? "your target"}’s
+              cells.
             </p>
             <DeductionMatrix
               storageKey={`ofiny_notes_${state.code}_${playerId}`}
@@ -240,20 +264,16 @@ export default function Game({
               >
                 All
               </button>
-              <button
-                type="button"
-                className={`chip ${historyFilter === "me" ? "selected" : ""}`}
-                onClick={() => setHistoryFilter("me")}
-              >
-                You
-              </button>
-              <button
-                type="button"
-                className={`chip ${historyFilter === "opponent" ? "selected" : ""}`}
-                onClick={() => setHistoryFilter("opponent")}
-              >
-                {opponent?.name ?? "Opponent"}
-              </button>
+              {state.players.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`chip ${historyFilter === p.id ? "selected" : ""}`}
+                  onClick={() => setHistoryFilter(p.id)}
+                >
+                  {p.id === playerId ? "You" : p.name}
+                </button>
+              ))}
             </div>
             {filteredHistory.length === 0 ? (
               <p style={{ margin: 0, color: "var(--muted)", fontWeight: 700 }}>
@@ -271,7 +291,8 @@ export default function Game({
                       </>
                     ) : (
                       <>
-                        <strong>{entry.playerName}</strong> tried to solve —{" "}
+                        <strong>{entry.playerName}</strong> tried to solve{" "}
+                        {entry.targetName}’s code —{" "}
                         {entry.correct ? "correct!" : "wrong"}
                       </>
                     )}
@@ -291,7 +312,7 @@ export default function Game({
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal">
             <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>
-              Solve opponent’s code
+              Solve {state.yourTargetName ?? "target"}’s code
             </h2>
             <p style={{ color: "var(--muted)", fontWeight: 700 }}>
               Fill the full 3×3. A wrong solve ends your turn.
@@ -333,7 +354,7 @@ export default function Game({
         </div>
       ) : null}
 
-      {guessPopup ? (
+      {guessPopup && !state.celebration ? (
         <div
           className="modal-backdrop"
           role="dialog"
@@ -374,6 +395,28 @@ export default function Game({
             </button>
           </div>
         </div>
+      ) : null}
+
+      {circleOpen ? (
+        <AssignmentCircle
+          players={state.players}
+          assignments={state.assignments}
+          viewerId={playerId}
+          yourTargetId={state.yourTargetId}
+          onClose={() => setCircleOpen(false)}
+        />
+      ) : null}
+
+      {state.celebration ? (
+        <SolveCelebration
+          celebration={state.celebration}
+          viewerId={playerId}
+          unsolvedCount={state.unsolvedCount}
+          busy={busy}
+          onContinue={onContinue}
+          onRestart={onRestart}
+          onLeave={onLeave}
+        />
       ) : null}
     </div>
   );

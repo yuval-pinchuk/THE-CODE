@@ -458,14 +458,34 @@ button {
   margin-bottom: 0.75rem;
 }
 
+.coins {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  vertical-align: middle;
+}
+
 .coin {
   width: 1.15rem;
   height: 1.15rem;
   border-radius: 50%;
-  display: inline-block;
+  display: inline-grid;
+  place-items: center;
   vertical-align: middle;
-  margin-right: 0.15rem;
+  margin-right: 0;
   animation: coin-pop 0.45s ease both;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--navy);
+}
+
+.coin.marked {
+  width: 1.35rem;
+  height: 1.35rem;
+  font-size: 0.85rem;
 }
 
 .coin.gold {
@@ -504,6 +524,74 @@ button {
   padding: 0.65rem 0.75rem;
   font-weight: 700;
   font-size: 0.92rem;
+}
+
+.history-row-btn {
+  display: block;
+  width: 100%;
+  margin: -0.65rem -0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-row-btn:active {
+  background: rgba(45, 184, 162, 0.12);
+}
+
+.coin-marks-modal {
+  text-align: center;
+}
+
+.coin-marks-lead {
+  margin: 0 0 0.85rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.coin-marks-slots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.coin-mark-slot {
+  border: none;
+  background: transparent;
+  padding: 0.25rem;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.coin-mark-slot .coin {
+  width: 2.4rem;
+  height: 2.4rem;
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.coin-mark-slot.selected {
+  background: rgba(45, 184, 162, 0.18);
+  box-shadow: 0 0 0 2px var(--teal);
+}
+
+.coin-marks-preview {
+  min-height: 1.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.coin-marks-digits {
+  justify-content: center;
+  margin-bottom: 1rem;
 }
 
 .line-picker {
@@ -632,6 +720,12 @@ button {
   width: 1.55rem;
   height: 1.55rem;
   margin: 0 0.2rem;
+  font-size: 0.95rem;
+}
+
+.guess-result-coins .coin.marked {
+  width: 1.7rem;
+  height: 1.7rem;
 }
 
 .guess-result-summary {

@@ -11,9 +11,17 @@ import Coins from "../components/Coins";
 import DeductionMatrix, { type SolvedLine } from "../components/DeductionMatrix";
 import DigitTray from "../components/DigitTray";
 import GuessPanel from "../components/GuessPanel";
+import HistoryCoinMarksModal from "../components/HistoryCoinMarksModal";
 import LabeledGrid from "../components/LabeledGrid";
 import SolveCelebration from "../components/SolveCelebration";
-import { notesStorageKey } from "../notesStorage";
+import {
+  coinMarksStorageKey,
+  loadCoinMarks,
+  normalizeCoinMarks,
+  notesStorageKey,
+  saveCoinMarks,
+  type CoinMarksMap,
+} from "../notesStorage";
 import { updateLockedBoard } from "../socket";
 
 type Props = {
@@ -44,6 +52,10 @@ export default function Game({
   const [wrongSolveFlash, setWrongSolveFlash] = useState(false);
   const [dismissedCelebrationKey, setDismissedCelebrationKey] = useState<string | null>(null);
   const [historyFilter, setHistoryFilter] = useState<string>("all");
+  const [coinMarks, setCoinMarks] = useState<CoinMarksMap>({});
+  const [markingGuess, setMarkingGuess] = useState<
+    (GuessHistoryEntry & { kind: "guess" }) | null
+  >(null);
   const [solveGrid, setSolveGrid] = useState<(number | null)[][]>([
     [null, null, null],
     [null, null, null],
@@ -96,6 +108,16 @@ export default function Game({
     if (historyFilter === "all") return list;
     return list.filter((e) => e.playerId === historyFilter);
   }, [state.history, historyFilter]);
+
+  const coinMarksKey = coinMarksStorageKey(
+    state.code,
+    playerId,
+    state.roundId ?? "none",
+  );
+
+  useEffect(() => {
+    setCoinMarks(loadCoinMarks(coinMarksKey));
+  }, [coinMarksKey]);
 
   useEffect(() => {
     const last = state.history[state.history.length - 1];
@@ -286,23 +308,57 @@ export default function Game({
                   </p>
                 ) : (
                   <ul className="history">
-                    {filteredHistory.map((entry) => (
-                      <li key={entry.id}>
-                        {entry.kind === "guess" ? (
-                          <>
-                            <strong>{entry.playerName}</strong> · {entry.label}:{" "}
-                            {entry.values.join(" ")}{" "}
-                            <Coins gold={entry.gold} silver={entry.silver} />
-                          </>
-                        ) : (
-                          <>
+                    {filteredHistory.map((entry) => {
+                      if (entry.kind !== "guess") {
+                        return (
+                          <li key={entry.id}>
                             <strong>{entry.playerName}</strong> tried to solve{" "}
                             {entry.targetName}’s code —{" "}
                             {entry.correct ? "correct!" : "wrong"}
-                          </>
-                        )}
-                      </li>
-                    ))}
+                          </li>
+                        );
+                      }
+
+                      const marks = normalizeCoinMarks(
+                        coinMarks[entry.id],
+                        entry.gold,
+                        entry.silver,
+                      );
+                      const canMark =
+                        entry.playerId === playerId &&
+                        entry.gold + entry.silver > 0;
+
+                      const body = (
+                        <>
+                          <strong>{entry.playerName}</strong> · {entry.label}:{" "}
+                          {entry.values.join(" ")}{" "}
+                          <Coins
+                            gold={entry.gold}
+                            silver={entry.silver}
+                            goldMarks={marks.gold}
+                            silverMarks={marks.silver}
+                          />
+                        </>
+                      );
+
+                      if (!canMark) {
+                        return <li key={entry.id}>{body}</li>;
+                      }
+
+                      return (
+                        <li key={entry.id}>
+                          <button
+                            type="button"
+                            className="history-row-btn"
+                            onClick={() =>
+                              setMarkingGuess({ ...entry, kind: "guess" })
+                            }
+                          >
+                            {body}
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </>
@@ -429,6 +485,25 @@ export default function Game({
         </div>
       ) : null}
 
+      {markingGuess ? (
+        <HistoryCoinMarksModal
+          entry={markingGuess}
+          marks={normalizeCoinMarks(
+            coinMarks[markingGuess.id],
+            markingGuess.gold,
+            markingGuess.silver,
+          )}
+          onChange={(next) => {
+            setCoinMarks((prev) => {
+              const updated = { ...prev, [markingGuess.id]: next };
+              saveCoinMarks(coinMarksKey, updated);
+              return updated;
+            });
+          }}
+          onClose={() => setMarkingGuess(null)}
+        />
+      ) : null}
+
       {guessPopup && !showCelebration ? (
         <div
           className="modal-backdrop"
@@ -455,7 +530,28 @@ export default function Game({
               ))}
             </div>
             <div className="guess-result-coins">
-              <Coins gold={guessPopup.gold} silver={guessPopup.silver} />
+              <Coins
+                gold={guessPopup.gold}
+                silver={guessPopup.silver}
+                goldMarks={
+                  guessPopup.playerId === playerId
+                    ? normalizeCoinMarks(
+                        coinMarks[guessPopup.id],
+                        guessPopup.gold,
+                        guessPopup.silver,
+                      ).gold
+                    : undefined
+                }
+                silverMarks={
+                  guessPopup.playerId === playerId
+                    ? normalizeCoinMarks(
+                        coinMarks[guessPopup.id],
+                        guessPopup.gold,
+                        guessPopup.silver,
+                      ).silver
+                    : undefined
+                }
+              />
             </div>
             <p className="guess-result-summary">
               {guessPopup.gold} gold · {guessPopup.silver} silver

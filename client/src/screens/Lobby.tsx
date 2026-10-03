@@ -57,8 +57,8 @@ export default function Lobby({
     if (typeof navigator.share === "function") {
       try {
         await navigator.share({
-          title: "THE CODE",
-          text: `Join my THE CODE room ${state.code}`,
+          title: "PIN CODE",
+          text: `Join my PIN CODE room ${state.code}`,
           url: inviteUrl,
         });
         return;

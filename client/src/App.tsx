@@ -189,7 +189,7 @@ export default function App() {
     <div className="app-shell">
       <header>
         <h1 className="brand">
-          THE <span>CODE</span>
+          PIN <span>CODE</span>
         </h1>
         <p className="tagline">Crack the 3×3 code</p>
       </header>

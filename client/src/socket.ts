@@ -23,13 +23,22 @@ export const socket: Socket = io(URL, {
 
 function emitAck<T>(event: string, payload?: unknown): Promise<Ack<T>> {
   return new Promise((resolve) => {
-    socket.timeout(8000).emit(event, payload, (err: Error | null, res: Ack<T>) => {
+    if (!socket.connected) {
+      resolve({ ok: false, error: "Not connected. Try again." });
+      return;
+    }
+    const cb = (err: Error | null, res: Ack<T>) => {
       if (err) {
         resolve({ ok: false, error: "Connection timed out. Try again." });
         return;
       }
       resolve(res ?? { ok: false, error: "No response from server." });
-    });
+    };
+    if (payload === undefined) {
+      socket.timeout(8000).emit(event, cb);
+    } else {
+      socket.timeout(8000).emit(event, payload, cb);
+    }
   });
 }
 

@@ -40,7 +40,7 @@ export default function Game({
   const [solveOpen, setSolveOpen] = useState(false);
   const [circleOpen, setCircleOpen] = useState(false);
   const [guessPopup, setGuessPopup] = useState<GuessHistoryEntry | null>(null);
-  const [dismissedCelebrationId, setDismissedCelebrationId] = useState<string | null>(null);
+  const [dismissedCelebrationKey, setDismissedCelebrationKey] = useState<string | null>(null);
   const [historyFilter, setHistoryFilter] = useState<string>("all");
   const [solveGrid, setSolveGrid] = useState<(number | null)[][]>([
     [null, null, null],
@@ -55,8 +55,12 @@ export default function Game({
 
   const me = state.players.find((p) => p.id === playerId);
   const hasSolved = Boolean(me?.hasSolved);
+  const celebrationKey = state.celebration
+    ? state.celebration.id ||
+      `${state.celebration.solverId}:${state.celebration.targetId}`
+    : null;
   const showCelebration = Boolean(
-    state.celebration && state.celebration.id !== dismissedCelebrationId,
+    celebrationKey && celebrationKey !== dismissedCelebrationKey,
   );
   const myTurn =
     state.turnPlayerId === playerId &&
@@ -423,14 +427,14 @@ export default function Game({
         />
       ) : null}
 
-      {showCelebration && state.celebration ? (
+      {showCelebration && state.celebration && celebrationKey ? (
         <SolveCelebration
           celebration={state.celebration}
           viewerId={playerId}
           busy={busy}
-          onContinue={() => setDismissedCelebrationId(state.celebration!.id)}
+          onContinue={() => setDismissedCelebrationKey(celebrationKey)}
           onRestart={() => {
-            setDismissedCelebrationId(state.celebration!.id);
+            setDismissedCelebrationKey(celebrationKey);
             onRestart();
           }}
           onLeave={onLeave}

@@ -205,6 +205,28 @@ io.on("connection", (socket) => {
     ack?.({ ok: true });
   });
 
+  // Personal dismiss is client-side; keep a no-op ack for older clients.
+  socket.on("game:continue", (...args: unknown[]) => {
+    const { ack } = splitAck(args);
+    ack?.({ ok: true });
+  });
+
+  // Older clients called game:restart; treat as personal requestRestart.
+  socket.on("game:restart", (...args: unknown[]) => {
+    const { ack } = splitAck(args);
+    if (!data.roomCode || !data.playerId) {
+      ack?.({ ok: false, error: "Not in a room." });
+      return;
+    }
+    const result = requestRestart(data.roomCode, data.playerId);
+    if (!result.ok) {
+      ack?.({ ok: false, error: result.error });
+      return;
+    }
+    emitStates(result.room.code, result.states);
+    ack?.({ ok: true });
+  });
+
   socket.on("disconnect", () => {
     handleDisconnect(
       socket.id,
@@ -233,7 +255,7 @@ if (existsSync(clientIndex)) {
 const PORT = Number(process.env.PORT) || 3000;
 
 httpServer.listen(PORT, () => {
-  console.log(`THE CODE server listening on :${PORT}`);
+  console.log(`PIN CODE server listening on :${PORT}`);
   if (existsSync(clientIndex)) {
     console.log(`Serving client from ${clientDist}`);
   }

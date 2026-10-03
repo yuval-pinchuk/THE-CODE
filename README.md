@@ -1,4 +1,4 @@
-# THE CODE
+# PIN CODE
 
 Mobile-first 1v1 code deduction game. Players hide a 3×3 grid using digits 1–9 once each, then take turns guessing rows/columns for gold & silver coins — or attempt a full-grid solve to win.
 

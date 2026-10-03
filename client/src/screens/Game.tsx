@@ -13,6 +13,7 @@ import DigitTray from "../components/DigitTray";
 import GuessPanel from "../components/GuessPanel";
 import LabeledGrid from "../components/LabeledGrid";
 import SolveCelebration from "../components/SolveCelebration";
+import { notesStorageKey } from "../notesStorage";
 
 type Props = {
   state: PublicRoomState;
@@ -225,7 +226,11 @@ export default function Game({
               cells.
             </p>
             <DeductionMatrix
-              storageKey={`ofiny_notes_${state.code}_${playerId}`}
+              storageKey={notesStorageKey(
+                state.code,
+                playerId,
+                state.roundId ?? "none",
+              )}
               solvedLines={solvedLines}
             />
           </>

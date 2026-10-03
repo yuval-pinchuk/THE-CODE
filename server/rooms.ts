@@ -38,6 +38,7 @@ interface Room {
   managerId: string;
   players: Player[];
   phase: Phase;
+  roundId: string | null;
   turnPlayerId: string | null;
   history: HistoryEntry[];
   assignments: Map<string, string>;
@@ -114,6 +115,7 @@ function firstUnsolved(room: Room, preferNonManager = true): string | null {
 }
 
 function resetRoundState(room: Room): void {
+  room.roundId = randomUUID();
   room.assignments = createDerangement(room.players.map((p) => p.id));
   room.history = [];
   room.celebration = null;
@@ -126,6 +128,7 @@ function resetRoundState(room: Room): void {
 
 function returnToLobby(room: Room): void {
   room.phase = "lobby";
+  room.roundId = null;
   room.turnPlayerId = null;
   room.history = [];
   room.celebration = null;
@@ -180,6 +183,7 @@ export function toPublicState(room: Room, viewerId: string): PublicRoomState {
   return {
     code: room.code,
     phase: room.phase,
+    roundId: room.roundId,
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
@@ -254,6 +258,7 @@ export function joinRoom(
       managerId: playerId,
       players: [player],
       phase: "lobby",
+      roundId: null,
       turnPlayerId: null,
       history: [],
       assignments: new Map(),

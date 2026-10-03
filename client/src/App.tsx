@@ -3,6 +3,7 @@ import type { Axis, Grid, LineValues, PublicRoomState } from "@shared/types";
 import Game from "./screens/Game";
 import Lobby from "./screens/Lobby";
 import Setup from "./screens/Setup";
+import { clearRoomNotes } from "./notesStorage";
 import { readRoomFromUrl, setRoomInUrl } from "./roomUrl";
 import {
   continueAfterSolve,
@@ -31,8 +32,37 @@ export default function App() {
   const [linkRoomCode, setLinkRoomCode] = useState(() => readRoomFromUrl());
   const rejoinInFlight = useRef(false);
   const leavingRef = useRef(false);
+  const prevPhaseRef = useRef<string | null>(null);
+  const prevRoundIdRef = useRef<string | null>(null);
 
   useEffect(() => onRoomState(setState), []);
+
+  // Clear local deduction boards when a round ends/restarts or the room returns to lobby.
+  useEffect(() => {
+    if (!state) {
+      prevPhaseRef.current = null;
+      prevRoundIdRef.current = null;
+      return;
+    }
+
+    const prevPhase = prevPhaseRef.current;
+    const prevRound = prevRoundIdRef.current;
+
+    if (state.phase === "lobby" && prevPhase && prevPhase !== "lobby") {
+      clearRoomNotes(state.code);
+    }
+
+    if (
+      state.roundId &&
+      prevRound &&
+      prevRound !== state.roundId
+    ) {
+      clearRoomNotes(state.code);
+    }
+
+    prevPhaseRef.current = state.phase;
+    prevRoundIdRef.current = state.roundId;
+  }, [state]);
 
   useEffect(() => {
     async function rejoinFromStorage() {
@@ -143,7 +173,9 @@ export default function App() {
   async function handleRestart() {
     setBusy(true);
     setError(null);
+    const roomCode = state?.code;
     const res = await restartGame();
+    if (res.ok && roomCode) clearRoomNotes(roomCode);
     setBusy(false);
     if (!res.ok) setError(res.error);
   }
@@ -152,7 +184,9 @@ export default function App() {
     leavingRef.current = true;
     setBusy(true);
     setError(null);
+    const roomCode = state?.code ?? localStorage.getItem(ROOM_KEY);
     await leaveRoom();
+    if (roomCode) clearRoomNotes(roomCode);
     localStorage.removeItem(ROOM_KEY);
     setRoomInUrl(null);
     setLinkRoomCode(null);

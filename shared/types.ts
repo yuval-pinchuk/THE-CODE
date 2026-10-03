@@ -59,6 +59,8 @@ export type HistoryEntry =
 export interface PublicRoomState {
   code: string;
   phase: Phase;
+  /** Changes each start/restart so clients reset local notes. */
+  roundId: string | null;
   players: PublicPlayer[];
   turnPlayerId: string | null;
   history: HistoryEntry[];

@@ -342,7 +342,7 @@ button {
 
 .toggle {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 0.4rem;
   background: rgba(11, 61, 74, 0.08);
   padding: 0.35rem;

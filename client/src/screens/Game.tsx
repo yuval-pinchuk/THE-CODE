@@ -37,7 +37,7 @@ export default function Game({
   onRestart,
   onLeave,
 }: Props) {
-  const [view, setView] = useState<"code" | "notes">("notes");
+  const [view, setView] = useState<"notes" | "history" | "code">("notes");
   const [solveOpen, setSolveOpen] = useState(false);
   const [circleOpen, setCircleOpen] = useState(false);
   const [guessPopup, setGuessPopup] = useState<GuessHistoryEntry | null>(null);
@@ -228,6 +228,13 @@ export default function Game({
         </button>
         <button
           type="button"
+          className={view === "history" ? "active" : ""}
+          onClick={() => setView("history")}
+        >
+          History
+        </button>
+        <button
+          type="button"
           className={view === "code" ? "active" : ""}
           onClick={() => setView("code")}
         >
@@ -243,6 +250,62 @@ export default function Game({
               <LabeledGrid values={state.yourGrid} readOnly />
             ) : (
               <p>No code</p>
+            )}
+          </>
+        ) : view === "history" ? (
+          <>
+            <h2>History</h2>
+            {state.history.length === 0 ? (
+              <p style={{ margin: 0, color: "var(--muted)", fontWeight: 700 }}>
+                No guesses yet.
+              </p>
+            ) : (
+              <>
+                <div className="line-picker history-filter">
+                  <button
+                    type="button"
+                    className={`chip ${historyFilter === "all" ? "selected" : ""}`}
+                    onClick={() => setHistoryFilter("all")}
+                  >
+                    All
+                  </button>
+                  {state.players.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`chip ${historyFilter === p.id ? "selected" : ""}`}
+                      onClick={() => setHistoryFilter(p.id)}
+                    >
+                      {p.id === playerId ? "You" : p.name}
+                    </button>
+                  ))}
+                </div>
+                {filteredHistory.length === 0 ? (
+                  <p style={{ margin: 0, color: "var(--muted)", fontWeight: 700 }}>
+                    No moves for this filter.
+                  </p>
+                ) : (
+                  <ul className="history">
+                    {filteredHistory.map((entry) => (
+                      <li key={entry.id}>
+                        {entry.kind === "guess" ? (
+                          <>
+                            <strong>{entry.playerName}</strong> · {entry.label}:{" "}
+                            {entry.values.join(" ")}{" "}
+                            <Coins gold={entry.gold} silver={entry.silver} />
+                          </>
+                        ) : (
+                          <>
+                            <strong>{entry.playerName}</strong> tried to solve{" "}
+                            {entry.targetName}’s code —{" "}
+                            {entry.correct ? "correct!" : "wrong"}
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </>
         ) : (
@@ -285,62 +348,6 @@ export default function Game({
           }}
         />
       ) : null}
-
-      <div className="panel">
-        <h2>History</h2>
-        {state.history.length === 0 ? (
-          <p style={{ margin: 0, color: "var(--muted)", fontWeight: 700 }}>
-            No guesses yet.
-          </p>
-        ) : (
-          <>
-            <div className="line-picker history-filter">
-              <button
-                type="button"
-                className={`chip ${historyFilter === "all" ? "selected" : ""}`}
-                onClick={() => setHistoryFilter("all")}
-              >
-                All
-              </button>
-              {state.players.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`chip ${historyFilter === p.id ? "selected" : ""}`}
-                  onClick={() => setHistoryFilter(p.id)}
-                >
-                  {p.id === playerId ? "You" : p.name}
-                </button>
-              ))}
-            </div>
-            {filteredHistory.length === 0 ? (
-              <p style={{ margin: 0, color: "var(--muted)", fontWeight: 700 }}>
-                No moves for this filter.
-              </p>
-            ) : (
-              <ul className="history">
-                {filteredHistory.map((entry) => (
-                  <li key={entry.id}>
-                    {entry.kind === "guess" ? (
-                      <>
-                        <strong>{entry.playerName}</strong> · {entry.label}:{" "}
-                        {entry.values.join(" ")}{" "}
-                        <Coins gold={entry.gold} silver={entry.silver} />
-                      </>
-                    ) : (
-                      <>
-                        <strong>{entry.playerName}</strong> tried to solve{" "}
-                        {entry.targetName}’s code —{" "}
-                        {entry.correct ? "correct!" : "wrong"}
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-      </div>
 
       <button
         type="button"

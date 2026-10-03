@@ -3,6 +3,13 @@ import type { Axis, LineValues } from "@shared/types";
 import { COL_LABELS, ROW_LABELS } from "@shared/types";
 import DigitTray from "./DigitTray";
 
+type LineChoice = { axis: Axis; index: number; label: string };
+
+const LINE_CHOICES: LineChoice[] = [
+  ...COL_LABELS.map((label, index) => ({ axis: "col" as const, index, label })),
+  ...ROW_LABELS.map((label, index) => ({ axis: "row" as const, index, label })),
+];
+
 type Props = {
   disabled?: boolean;
   onGuess: (axis: Axis, index: number, values: LineValues) => void;
@@ -10,16 +17,13 @@ type Props = {
 };
 
 export default function GuessPanel({ disabled, onGuess, onOpenSolve }: Props) {
-  const [axis, setAxis] = useState<Axis>("row");
-  const [index, setIndex] = useState(0);
+  const [line, setLine] = useState<LineChoice | null>(null);
   const [values, setValues] = useState<(number | null)[]>([null, null, null]);
 
   const used = useMemo(
     () => new Set(values.filter((v): v is number => v !== null)),
     [values],
   );
-
-  const labels = axis === "row" ? ROW_LABELS : COL_LABELS;
 
   function pickDigit(d: number) {
     setValues((prev) => {
@@ -40,40 +44,27 @@ export default function GuessPanel({ disabled, onGuess, onOpenSolve }: Props) {
   }
 
   function submit() {
-    if (values.some((v) => v === null)) return;
-    onGuess(axis, index, values as LineValues);
+    if (!line || values.some((v) => v === null)) return;
+    onGuess(line.axis, line.index, values as LineValues);
     setValues([null, null, null]);
+    setLine(null);
   }
+
+  const canGuess = Boolean(line) && values.every((v) => v !== null);
 
   return (
     <div className="panel">
       <h2>Your move</h2>
       <div className="line-picker">
-        {(["row", "col"] as Axis[]).map((a) => (
+        {LINE_CHOICES.map((choice) => (
           <button
-            key={a}
+            key={choice.label}
             type="button"
-            className={`chip ${axis === a ? "selected" : ""}`}
+            className={`chip ${line?.label === choice.label ? "selected" : ""}`}
             disabled={disabled}
-            onClick={() => {
-              setAxis(a);
-              setIndex(0);
-            }}
+            onClick={() => setLine(choice)}
           >
-            {a === "row" ? "Row" : "Column"}
-          </button>
-        ))}
-      </div>
-      <div className="line-picker">
-        {labels.map((label, i) => (
-          <button
-            key={label}
-            type="button"
-            className={`chip ${index === i ? "selected" : ""}`}
-            disabled={disabled}
-            onClick={() => setIndex(i)}
-          >
-            {label}
+            {choice.label}
           </button>
         ))}
       </div>
@@ -98,10 +89,10 @@ export default function GuessPanel({ disabled, onGuess, onOpenSolve }: Props) {
         <button
           type="button"
           className="btn btn-primary"
-          disabled={disabled || values.some((v) => v === null)}
+          disabled={disabled || !canGuess}
           onClick={submit}
         >
-          Guess {labels[index]}
+          {line ? `Guess ${line.label}` : "Guess"}
         </button>
         <button
           type="button"

@@ -20,7 +20,7 @@ import {
   scoreLine,
 } from "./game.js";
 
-const RECONNECT_GRACE_MS = 60_000;
+const RECONNECT_GRACE_MS = 15 * 60_000;
 const MAX_PLAYERS = 8;
 const MIN_PLAYERS = 2;
 

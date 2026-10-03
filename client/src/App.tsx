@@ -7,6 +7,7 @@ import WaitingRoom from "./screens/WaitingRoom";
 import { clearRoomNotes } from "./notesStorage";
 import { readRoomFromUrl, setRoomInUrl } from "./roomUrl";
 import {
+  ensureConnected,
   guessLine,
   joinRoom,
   leaveRoom,
@@ -17,6 +18,16 @@ import {
   solveCode,
   startGame,
 } from "./socket";
+
+function isSessionGoneError(error: string): boolean {
+  const msg = error.toLowerCase();
+  return (
+    msg.includes("not found") ||
+    msg.includes("already in progress") ||
+    msg.includes("full") ||
+    msg.includes("already taken")
+  );
+}
 
 const PLAYER_KEY = "ofiny_player_id";
 const ROOM_KEY = "ofiny_room_code";
@@ -72,6 +83,7 @@ export default function App() {
       if (urlRoom && savedRoom && urlRoom !== savedRoom) return;
       if (!savedRoom || !savedName || !savedPlayer) return;
 
+      ensureConnected();
       rejoinInFlight.current = true;
       try {
         const res = await joinRoom({
@@ -81,7 +93,10 @@ export default function App() {
         });
         if (leavingRef.current) return;
         if (!res.ok) {
-          localStorage.removeItem(ROOM_KEY);
+          // Keep session for timeouts / offline; only clear when the seat is gone.
+          if (isSessionGoneError(res.error)) {
+            localStorage.removeItem(ROOM_KEY);
+          }
           return;
         }
         if (res.playerId) {
@@ -95,10 +110,27 @@ export default function App() {
       }
     }
 
+    function resumeSession() {
+      if (document.visibilityState && document.visibilityState !== "visible") return;
+      ensureConnected();
+      void rejoinFromStorage();
+    }
+
     void rejoinFromStorage();
-    return onConnect(() => {
+    const offConnect = onConnect(() => {
       void rejoinFromStorage();
     });
+
+    document.addEventListener("visibilitychange", resumeSession);
+    window.addEventListener("pageshow", resumeSession);
+    window.addEventListener("focus", resumeSession);
+
+    return () => {
+      offConnect();
+      document.removeEventListener("visibilitychange", resumeSession);
+      window.removeEventListener("pageshow", resumeSession);
+      window.removeEventListener("focus", resumeSession);
+    };
   }, []);
 
   async function handleJoin(name: string, roomCode: string) {

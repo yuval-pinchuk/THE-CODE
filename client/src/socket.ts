@@ -20,7 +20,17 @@ const URL =
 export const socket: Socket = io(URL, {
   autoConnect: true,
   transports: ["websocket", "polling"],
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 500,
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
 });
+
+/** Ensure the socket is connecting/connected (e.g. after mobile backgrounding). */
+export function ensureConnected() {
+  if (!socket.connected) socket.connect();
+}
 
 function emitAck<T>(event: string, payload?: unknown): Promise<Ack<T>> {
   return new Promise((resolve) => {

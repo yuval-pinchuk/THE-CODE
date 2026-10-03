@@ -10,12 +10,15 @@ export type Grid = [
 
 export type LineValues = [number, number, number];
 
+export type PlayerSeat = "playing" | "waitingRestart";
+
 export interface PublicPlayer {
   id: string;
   name: string;
   connected: boolean;
   hasCode: boolean;
   hasSolved: boolean;
+  wantsRestart: boolean;
   isManager: boolean;
 }
 
@@ -25,6 +28,7 @@ export interface AssignmentEdge {
 }
 
 export interface CelebrationState {
+  id: string;
   solverId: string;
   solverName: string;
   targetId: string;
@@ -67,6 +71,7 @@ export interface PublicRoomState {
   assignments: AssignmentEdge[];
   yourTargetId: string | null;
   yourTargetName: string | null;
+  yourSeat: PlayerSeat;
   celebration: CelebrationState | null;
   unsolvedCount: number;
   yourGrid: Grid | null;

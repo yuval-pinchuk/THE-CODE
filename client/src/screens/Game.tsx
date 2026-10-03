@@ -22,7 +22,6 @@ type Props = {
   error: string | null;
   onGuess: (axis: Axis, index: number, values: LineValues) => void;
   onSolve: (grid: Grid) => void;
-  onContinue: () => void;
   onRestart: () => void;
   onLeave: () => void;
 };
@@ -34,7 +33,6 @@ export default function Game({
   error,
   onGuess,
   onSolve,
-  onContinue,
   onRestart,
   onLeave,
 }: Props) {
@@ -42,6 +40,7 @@ export default function Game({
   const [solveOpen, setSolveOpen] = useState(false);
   const [circleOpen, setCircleOpen] = useState(false);
   const [guessPopup, setGuessPopup] = useState<GuessHistoryEntry | null>(null);
+  const [dismissedCelebrationId, setDismissedCelebrationId] = useState<string | null>(null);
   const [historyFilter, setHistoryFilter] = useState<string>("all");
   const [solveGrid, setSolveGrid] = useState<(number | null)[][]>([
     [null, null, null],
@@ -56,12 +55,16 @@ export default function Game({
 
   const me = state.players.find((p) => p.id === playerId);
   const hasSolved = Boolean(me?.hasSolved);
+  const showCelebration = Boolean(
+    state.celebration && state.celebration.id !== dismissedCelebrationId,
+  );
   const myTurn =
     state.turnPlayerId === playerId &&
     !state.paused &&
     state.phase === "playing" &&
     !hasSolved &&
-    !state.celebration;
+    !me?.wantsRestart &&
+    !showCelebration;
   const turnPlayer = state.players.find((p) => p.id === state.turnPlayerId);
 
   const solvedLines = useMemo<SolvedLine[]>(
@@ -100,19 +103,19 @@ export default function Game({
     }
     if (last.id === seenHistoryId.current) return;
     seenHistoryId.current = last.id;
-    if (last.kind === "guess" && !state.celebration) {
+    if (last.kind === "guess" && !showCelebration) {
       setGuessPopup(last);
       setSolveOpen(false);
     }
-  }, [state.history, state.celebration]);
+  }, [state.history, showCelebration]);
 
   useEffect(() => {
     if (!myTurn) setSolveOpen(false);
   }, [myTurn]);
 
   useEffect(() => {
-    if (state.celebration) setGuessPopup(null);
-  }, [state.celebration]);
+    if (showCelebration) setGuessPopup(null);
+  }, [showCelebration]);
 
   const used = useMemo(() => {
     const set = new Set<number>();
@@ -309,7 +312,15 @@ export default function Game({
         )}
       </div>
 
-      <button type="button" className="btn btn-ghost" onClick={onLeave}>
+      <button
+        type="button"
+        className="btn btn-coral"
+        disabled={busy || me?.wantsRestart}
+        onClick={onRestart}
+      >
+        Restart
+      </button>
+      <button type="button" className="btn btn-ghost" onClick={onLeave} disabled={busy}>
         Leave room
       </button>
 
@@ -359,7 +370,7 @@ export default function Game({
         </div>
       ) : null}
 
-      {guessPopup && !state.celebration ? (
+      {guessPopup && !showCelebration ? (
         <div
           className="modal-backdrop"
           role="dialog"
@@ -412,14 +423,16 @@ export default function Game({
         />
       ) : null}
 
-      {state.celebration ? (
+      {showCelebration && state.celebration ? (
         <SolveCelebration
           celebration={state.celebration}
           viewerId={playerId}
-          unsolvedCount={state.unsolvedCount}
           busy={busy}
-          onContinue={onContinue}
-          onRestart={onRestart}
+          onContinue={() => setDismissedCelebrationId(state.celebration!.id)}
+          onRestart={() => {
+            setDismissedCelebrationId(state.celebration!.id);
+            onRestart();
+          }}
           onLeave={onLeave}
         />
       ) : null}

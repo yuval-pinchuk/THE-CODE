@@ -3,16 +3,16 @@ import type { Axis, Grid, LineValues, PublicRoomState } from "@shared/types";
 import Game from "./screens/Game";
 import Lobby from "./screens/Lobby";
 import Setup from "./screens/Setup";
+import WaitingRoom from "./screens/WaitingRoom";
 import { clearRoomNotes } from "./notesStorage";
 import { readRoomFromUrl, setRoomInUrl } from "./roomUrl";
 import {
-  continueAfterSolve,
   guessLine,
   joinRoom,
   leaveRoom,
   onConnect,
   onRoomState,
-  restartGame,
+  requestRestart,
   setCode,
   solveCode,
   startGame,
@@ -52,11 +52,7 @@ export default function App() {
       clearRoomNotes(state.code);
     }
 
-    if (
-      state.roundId &&
-      prevRound &&
-      prevRound !== state.roundId
-    ) {
+    if (state.roundId && prevRound && prevRound !== state.roundId) {
       clearRoomNotes(state.code);
     }
 
@@ -73,7 +69,6 @@ export default function App() {
       const savedName = localStorage.getItem(NAME_KEY);
       const savedPlayer = localStorage.getItem(PLAYER_KEY);
 
-      // Prefer URL room for a fresh invite join; only auto-reconnect when it matches.
       if (urlRoom && savedRoom && urlRoom !== savedRoom) return;
       if (!savedRoom || !savedName || !savedPlayer) return;
 
@@ -162,20 +157,10 @@ export default function App() {
     if (!res.ok) setError(res.error);
   }
 
-  async function handleContinue() {
-    setBusy(true);
-    setError(null);
-    const res = await continueAfterSolve();
-    setBusy(false);
-    if (!res.ok) setError(res.error);
-  }
-
   async function handleRestart() {
     setBusy(true);
     setError(null);
-    const roomCode = state?.code;
-    const res = await restartGame();
-    if (res.ok && roomCode) clearRoomNotes(roomCode);
+    const res = await requestRestart();
     setBusy(false);
     if (!res.ok) setError(res.error);
   }
@@ -196,6 +181,9 @@ export default function App() {
   }
 
   const phase = state?.phase;
+  const me = state?.players.find((p) => p.id === playerId);
+  const inWaitingRoom =
+    Boolean(state && phase === "playing" && me?.wantsRestart && playerId);
 
   return (
     <div className="app-shell">
@@ -229,7 +217,11 @@ export default function App() {
         />
       ) : null}
 
-      {state && phase === "playing" && playerId ? (
+      {inWaitingRoom && state ? (
+        <WaitingRoom state={state} busy={busy} onLeave={handleLeave} />
+      ) : null}
+
+      {state && phase === "playing" && playerId && !me?.wantsRestart ? (
         <Game
           state={state}
           playerId={playerId}
@@ -237,7 +229,6 @@ export default function App() {
           error={error}
           onGuess={handleGuess}
           onSolve={handleSolve}
-          onContinue={handleContinue}
           onRestart={handleRestart}
           onLeave={handleLeave}
         />

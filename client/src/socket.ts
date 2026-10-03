@@ -57,12 +57,8 @@ export function solveCode(payload: SolvePayload) {
   return emitAck("game:solve", payload);
 }
 
-export function continueAfterSolve() {
-  return emitAck("game:continue", {});
-}
-
-export function restartGame() {
-  return emitAck("game:restart", {});
+export function requestRestart() {
+  return emitAck("game:requestRestart", {});
 }
 
 export function onRoomState(handler: (state: PublicRoomState) => void) {

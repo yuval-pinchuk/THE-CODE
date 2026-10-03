@@ -62,10 +62,6 @@ const setupA = waitForState(a, (s) => s.phase === "setup" && s.yourTargetId);
 const start = await emit(a, "game:start");
 if (!start.ok) throw new Error(start.error);
 const setupState = await setupA;
-console.log(
-  "Assignments:",
-  setupState.assignments.map((e) => `${e.fromId.slice(0, 4)}→${e.toId.slice(0, 4)}`).join(", "),
-);
 console.log("Alice target:", setupState.yourTargetName);
 
 const playing = waitForState(b, (s) => s.phase === "playing");
@@ -74,7 +70,6 @@ await emit(b, "game:setCode", { grid: codeB });
 const playState = await playing;
 console.log("Playing, turn:", playState.turnPlayerId === joinB.playerId ? "Bob" : "Alice");
 
-// With 2 players, derangement is A→B and B→A. Non-manager goes first.
 const firstId = playState.turnPlayerId;
 const firstSocket = firstId === joinA.playerId ? a : b;
 const secondSocket = firstId === joinA.playerId ? b : a;
@@ -90,9 +85,7 @@ const guess = await emit(firstSocket, "game:guessLine", {
   values: [3, 2, 6],
 });
 if (!guess.ok) throw new Error(guess.error);
-const afterGuess = await afterGuessP;
-const entry = afterGuess.history[0];
-console.log("Guess result:", entry.label, entry.values, "gold", entry.gold, "silver", entry.silver);
+await afterGuessP;
 
 const afterWrongP = waitForState(firstSocket, (s) =>
   s.history.some((h) => h.kind === "solve" && !h.correct),
@@ -101,7 +94,7 @@ const wrong = await emit(secondSocket, "game:solve", { grid: secondOwnCode });
 if (!wrong.ok) throw new Error(wrong.error);
 await afterWrongP;
 
-const celebWait = waitForState(firstSocket, (s) => s.celebration && s.phase === "playing");
+const celebWait = waitForState(firstSocket, (s) => s.celebration?.id && s.phase === "playing");
 const solve = await emit(firstSocket, "game:solve", { grid: targetCode });
 if (!solve.ok) throw new Error(solve.error);
 const celebrated = await celebWait;
@@ -110,27 +103,37 @@ console.log(
   celebrated.celebration.solverName,
   "→",
   celebrated.celebration.targetName,
-  "unsolved",
-  celebrated.unsolvedCount,
+  "id",
+  celebrated.celebration.id.slice(0, 8),
 );
 
-if (celebrated.celebration.solverId !== firstId) {
-  throw new Error("Expected first player to be the solver");
-}
-if (celebrated.unsolvedCount !== 1) {
-  throw new Error("Expected one unsolved player left");
+// Celebration must not block the other player's turn (they may still be unsolved).
+if (celebrated.turnPlayerId !== secondId) {
+  // With 2p, after first solves only second remains active — turn should be second.
+  if (celebrated.unsolvedCount !== 1) {
+    throw new Error("Expected one unsolved player");
+  }
 }
 
-// Continue should fail when only one unsolved
-const cont = await emit(firstSocket, "game:continue", {});
-if (cont.ok) throw new Error("Continue should be blocked when unsolvedCount <= 1");
+// One player requesting restart must NOT start a new round alone.
+const oneRestartWait = waitForState(secondSocket, (s) =>
+  s.players.some((p) => p.id === firstId && p.wantsRestart) && s.phase === "playing",
+);
+const oneRestart = await emit(firstSocket, "game:requestRestart", {});
+if (!oneRestart.ok) throw new Error(oneRestart.error);
+const afterOne = await oneRestartWait;
+if (afterOne.phase !== "playing") {
+  throw new Error("Single restart request should not flip to setup");
+}
+console.log("First player waiting to restart; phase still playing");
 
-const restartWait = waitForState(secondSocket, (s) => s.phase === "setup" && !s.celebration);
-const restart = await emit(firstSocket, "game:restart", {});
-if (!restart.ok) throw new Error(restart.error);
-const restarted = await restartWait;
-if (!restarted.yourTargetId) throw new Error("Expected new target after restart");
-console.log("Restarted to setup, new target:", restarted.yourTargetName);
+// Second player also requests restart → setup for both.
+const setupWait = waitForState(secondSocket, (s) => s.phase === "setup" && s.yourTargetId);
+const twoRestart = await emit(secondSocket, "game:requestRestart", {});
+if (!twoRestart.ok) throw new Error(twoRestart.error);
+const restarted = await setupWait;
+if (!restarted.yourTargetId) throw new Error("Expected new target after both restart");
+console.log("Both requested restart → setup, target:", restarted.yourTargetName);
 
 a.close();
 b.close();

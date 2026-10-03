@@ -4,7 +4,6 @@ import type { CelebrationState } from "@shared/types";
 type Props = {
   celebration: CelebrationState;
   viewerId: string;
-  unsolvedCount: number;
   busy: boolean;
   onContinue: () => void;
   onRestart: () => void;
@@ -65,21 +64,19 @@ function burstConfetti(canvas: HTMLCanvasElement) {
 export default function SolveCelebration({
   celebration,
   viewerId,
-  unsolvedCount,
   busy,
   onContinue,
   onRestart,
   onLeave,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const canContinue = unsolvedCount > 1;
   const isSolver = celebration.solverId === viewerId;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     return burstConfetti(canvas);
-  }, [celebration.solverId, celebration.targetId]);
+  }, [celebration.id]);
 
   return (
     <div className="modal-backdrop celebration-backdrop" role="dialog" aria-modal="true">
@@ -91,28 +88,26 @@ export default function SolveCelebration({
           {celebration.targetId === viewerId ? "your" : `${celebration.targetName}’s`} code
         </h2>
         <p className="celebration-sub">
-          {canContinue
-            ? "Keep playing, restart with new targets, or leave."
-            : "Only one player left unsolved — restart or leave."}
+          {isSolver
+            ? "Continue as a spectator, wait to restart, or leave."
+            : "Continue playing, wait to restart, or leave."}
         </p>
         <div className="celebration-actions">
-          {canContinue ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={busy}
-              onClick={onContinue}
-            >
-              Continue
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={onContinue}
+          >
+            Continue
+          </button>
           <button
             type="button"
             className="btn btn-coral"
             disabled={busy}
             onClick={onRestart}
           >
-            Restart game
+            Restart
           </button>
           <button
             type="button"

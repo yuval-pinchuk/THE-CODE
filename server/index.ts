@@ -8,11 +8,16 @@ import type {
   GuessLinePayload,
   JoinPayload,
   SetCodePayload,
+  SetTurnLimitPayload,
   SolvePayload,
+  StartGamePayload,
   UpdateLockedBoardPayload,
+  VsComputerPayload,
 } from "../shared/types.js";
+import { driveRoom, stopRoomAutomation } from "./drive.js";
 import {
   getConnectedSocketIds,
+  getRoom,
   guessLine,
   handleDisconnect,
   joinRoom,
@@ -20,6 +25,8 @@ import {
   requestRestart,
   setCode,
   startGame,
+  startVsComputer,
+  setTurnLimit,
   solve,
   toPublicState,
   updateLockedBoard,
@@ -68,6 +75,11 @@ function emitStates(
   }
 }
 
+function publishRoom(roomCode: string, states: Map<string, ReturnType<typeof toPublicState>>): void {
+  emitStates(roomCode, states);
+  driveRoom(roomCode, (room, next) => emitStates(room.code, next));
+}
+
 io.on("connection", (socket) => {
   const data = socket.data as SocketData;
 
@@ -95,7 +107,7 @@ io.on("connection", (socket) => {
 
     ack?.({ ok: true, playerId: result.playerId, state: result.state });
 
-    emitStates(
+    publishRoom(
       result.room.code,
       new Map(
         result.room.players.map((p) => [p.id, toPublicState(result.room, p.id)]),
@@ -121,23 +133,68 @@ io.on("connection", (socket) => {
     }
 
     if (!result.deleteRoom) {
-      emitStates(result.room.code, result.states);
+      publishRoom(result.room.code, result.states);
+    } else {
+      stopRoomAutomation(getRoom(code));
     }
     ack?.({ ok: true });
   });
 
-  socket.on("game:start", (...args: unknown[]) => {
-    const { ack } = splitAck(args);
-    if (!data.roomCode || !data.playerId) {
-      ack?.({ ok: false, error: "Not in a room." });
-      return;
-    }
-    const result = startGame(data.roomCode, data.playerId);
+  socket.on("game:vsComputer", (...args: unknown[]) => {
+    const { payload, ack } = splitAck<VsComputerPayload>(args);
+    const result = startVsComputer(
+      payload?.name ?? "",
+      payload?.difficulty,
+      payload?.turnSeconds,
+      socket.id,
+    );
     if (!result.ok) {
       ack?.({ ok: false, error: result.error });
       return;
     }
-    emitStates(result.room.code, result.states);
+    if (data.roomCode) socket.leave(data.roomCode);
+    data.playerId = result.playerId;
+    data.roomCode = result.room.code;
+    socket.join(result.room.code);
+    ack?.({ ok: true, playerId: result.playerId, state: result.state });
+    publishRoom(
+      result.room.code,
+      new Map(result.room.players.map((p) => [p.id, toPublicState(result.room, p.id)])),
+    );
+  });
+
+  socket.on("game:start", (...args: unknown[]) => {
+    const { payload, ack } = splitAck<StartGamePayload>(args);
+    if (!data.roomCode || !data.playerId) {
+      ack?.({ ok: false, error: "Not in a room." });
+      return;
+    }
+    const result = startGame(
+      data.roomCode,
+      data.playerId,
+      payload?.difficulty,
+      payload?.turnSeconds,
+    );
+    if (!result.ok) {
+      ack?.({ ok: false, error: result.error });
+      return;
+    }
+    publishRoom(result.room.code, result.states);
+    ack?.({ ok: true });
+  });
+
+  socket.on("game:setTurnLimit", (...args: unknown[]) => {
+    const { payload, ack } = splitAck<SetTurnLimitPayload>(args);
+    if (!data.roomCode || !data.playerId) {
+      ack?.({ ok: false, error: "Not in a room." });
+      return;
+    }
+    const result = setTurnLimit(data.roomCode, data.playerId, payload?.turnSeconds);
+    if (!result.ok) {
+      ack?.({ ok: false, error: result.error });
+      return;
+    }
+    publishRoom(result.room.code, result.states);
     ack?.({ ok: true });
   });
 
@@ -152,7 +209,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: result.error });
       return;
     }
-    emitStates(result.room.code, result.states);
+    publishRoom(result.room.code, result.states);
     ack?.({ ok: true });
   });
 
@@ -173,7 +230,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: result.error });
       return;
     }
-    emitStates(result.room.code, result.states);
+    publishRoom(result.room.code, result.states);
     ack?.({ ok: true });
   });
 
@@ -188,7 +245,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: result.error });
       return;
     }
-    emitStates(result.room.code, result.states);
+    publishRoom(result.room.code, result.states);
     ack?.({ ok: true });
   });
 
@@ -203,7 +260,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: result.error });
       return;
     }
-    emitStates(result.room.code, result.states);
+    publishRoom(result.room.code, result.states);
     ack?.({ ok: true });
   });
 
@@ -218,7 +275,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: result.error });
       return;
     }
-    emitStates(result.room.code, result.states);
+    publishRoom(result.room.code, result.states);
     ack?.({ ok: true });
   });
 
@@ -240,14 +297,14 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: result.error });
       return;
     }
-    emitStates(result.room.code, result.states);
+    publishRoom(result.room.code, result.states);
     ack?.({ ok: true });
   });
 
   socket.on("disconnect", () => {
     handleDisconnect(
       socket.id,
-      (room, states) => emitStates(room.code, states),
+      (room, states) => publishRoom(room.code, states),
       () => {
         /* room deleted */
       },

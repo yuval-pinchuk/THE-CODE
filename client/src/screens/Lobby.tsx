@@ -1,6 +1,8 @@
 import { FormEvent, useMemo, useState } from "react";
-import type { PublicRoomState } from "@shared/types";
+import type { Difficulty, PublicRoomState } from "@shared/types";
 import { roomInviteUrl } from "../roomUrl";
+import TurnTimeControl, { turnTimeLabel } from "../components/TurnTimeControl";
+import VsSetup from "./VsSetup";
 
 const MAX_PLAYERS = 8;
 
@@ -14,6 +16,9 @@ type Props = {
   onStart: () => void;
   onLeave: () => void;
   onGoHome: () => void;
+  onVsComputer: (name: string, difficulty: Difficulty, turnSeconds: number) => void;
+  onStartVsRound: (difficulty: Difficulty, turnSeconds: number) => void;
+  onSetTurnLimit: (turnSeconds: number) => void;
 };
 
 export default function Lobby({
@@ -26,10 +31,14 @@ export default function Lobby({
   onStart,
   onLeave,
   onGoHome,
+  onVsComputer,
+  onStartVsRound,
+  onSetTurnLimit,
 }: Props) {
   const [name, setName] = useState(() => localStorage.getItem("ofiny_name") ?? "");
   const [roomCode, setRoomCode] = useState(initialRoomCode ?? "");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [vsOpen, setVsOpen] = useState(false);
   const fromInviteLink = Boolean(initialRoomCode);
 
   const inviteUrl = useMemo(
@@ -69,6 +78,41 @@ export default function Lobby({
       }
     }
     await copyInvite();
+  }
+
+  if (!state && vsOpen && !fromInviteLink) {
+    return (
+      <VsSetup
+        initialName={name}
+        initialDifficulty="medium"
+        initialTurnSeconds={0}
+        busy={busy}
+        error={error}
+        startLabel="Start"
+        onStart={(nextName, difficulty, turnSeconds) => {
+          setName(nextName);
+          onVsComputer(nextName, difficulty, turnSeconds);
+        }}
+        onBack={() => setVsOpen(false)}
+      />
+    );
+  }
+
+  if (state?.vsComputer && state.phase === "lobby") {
+    return (
+      <VsSetup
+        initialName={meName(state, playerId)}
+        initialDifficulty={state.difficulty ?? "medium"}
+        initialTurnSeconds={state.turnLimitSeconds}
+        lockName
+        busy={busy}
+        error={error}
+        startLabel="Start"
+        onStart={(_name, difficulty, turnSeconds) => onStartVsRound(difficulty, turnSeconds)}
+        onBack={onLeave}
+        backLabel="Leave"
+      />
+    );
   }
 
   if (!state) {
@@ -118,6 +162,19 @@ export default function Lobby({
             {fromInviteLink ? "Join room" : "Create / join room"}
           </button>
         </form>
+        {!fromInviteLink ? (
+          <>
+            <div style={{ height: "0.65rem" }} />
+            <button
+              type="button"
+              className="btn btn-coral"
+              disabled={busy}
+              onClick={() => setVsOpen(true)}
+            >
+              VS Computer
+            </button>
+          </>
+        ) : null}
         {fromInviteLink ? (
           <>
             <div style={{ height: "0.65rem" }} />
@@ -198,6 +255,16 @@ export default function Lobby({
 
       <div style={{ height: "0.85rem" }} />
       {me?.isManager ? (
+        <TurnTimeControl
+          seconds={state.turnLimitSeconds}
+          onChange={onSetTurnLimit}
+        />
+      ) : (
+        <p className="turn-time-readout">
+          Turn time: {turnTimeLabel(state.turnLimitSeconds)}
+        </p>
+      )}
+      {me?.isManager ? (
         <button
           type="button"
           className="btn btn-coral"
@@ -216,5 +283,13 @@ export default function Lobby({
         </button>
       </div>
     </div>
+  );
+}
+
+function meName(state: PublicRoomState, playerId: string | null): string {
+  return (
+    state.players.find((p) => p.id === playerId)?.name ??
+    localStorage.getItem("ofiny_name") ??
+    ""
   );
 }

@@ -3,6 +3,7 @@ import type {
   AssignmentEdge,
   Axis,
   CelebrationState,
+  Difficulty,
   Grid,
   HistoryEntry,
   LineValues,
@@ -17,6 +18,7 @@ import {
   gridsEqual,
   isValidCode,
   isValidLineValues,
+  randomCode,
   scoreLine,
 } from "./game.js";
 
@@ -71,10 +73,11 @@ interface Player {
   hasSolved: boolean;
   wantsRestart: boolean;
   lockedBoard: LockedBoard;
+  isBot: boolean;
   disconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
-interface Room {
+export interface Room {
   code: string;
   managerId: string;
   players: Player[];
@@ -85,6 +88,16 @@ interface Room {
   assignments: Map<string, string>;
   celebration: CelebrationState | null;
   createdAt: number;
+  vsComputer: boolean;
+  difficulty: Difficulty | null;
+  turnLimitSeconds: number;
+  turnDeadline: number | null;
+  turnClockKey: string | null;
+  turnSerial: number;
+  automationGen: number;
+  turnTimer: ReturnType<typeof setTimeout> | null;
+  botTimer: ReturnType<typeof setTimeout> | null;
+  botTurnKey: string | null;
 }
 
 const rooms = new Map<string, Room>();
@@ -156,12 +169,23 @@ function firstActive(room: Room, preferNonManager = true): string | null {
   return activeTurnPlayers(room)[0]?.id ?? null;
 }
 
+export function clearAutomationTimers(room: Room): void {
+  if (room.turnTimer) clearTimeout(room.turnTimer);
+  if (room.botTimer) clearTimeout(room.botTimer);
+  room.turnTimer = null;
+  room.botTimer = null;
+}
+
 function resetRoundState(room: Room): void {
   room.roundId = randomUUID();
   room.assignments = createDerangement(room.players.map((p) => p.id));
   room.history = [];
   room.celebration = null;
   room.turnPlayerId = null;
+  room.turnDeadline = null;
+  room.turnClockKey = null;
+  room.turnSerial = 0;
+  room.botTurnKey = null;
   for (const p of room.players) {
     p.secretGrid = null;
     p.hasSolved = false;
@@ -171,12 +195,17 @@ function resetRoundState(room: Room): void {
 }
 
 function returnToLobby(room: Room): void {
+  clearAutomationTimers(room);
   room.phase = "lobby";
   room.roundId = null;
   room.turnPlayerId = null;
   room.history = [];
   room.celebration = null;
   room.assignments = new Map();
+  room.turnDeadline = null;
+  room.turnClockKey = null;
+  room.turnSerial = 0;
+  room.botTurnKey = null;
   for (const p of room.players) {
     p.secretGrid = null;
     p.hasSolved = false;
@@ -195,8 +224,36 @@ function promoteManager(room: Room): void {
 
 function isPaused(room: Room): boolean {
   if (room.phase === "lobby") return false;
-  // Only pause if an active (non-waiting) player is disconnected.
-  return room.players.some((p) => !p.wantsRestart && !p.connected);
+  // Only pause if an active (non-waiting) human is disconnected.
+  return room.players.some((p) => !p.isBot && !p.wantsRestart && !p.connected);
+}
+
+export function isRoomPaused(room: Room): boolean {
+  return isPaused(room);
+}
+
+export function syncTurnDeadline(room: Room): void {
+  if (isPaused(room)) {
+    room.turnDeadline = null;
+    room.turnClockKey = null;
+    return;
+  }
+  if (room.phase !== "playing" || !room.turnPlayerId || room.turnLimitSeconds <= 0) {
+    room.turnDeadline = null;
+    room.turnClockKey = null;
+    return;
+  }
+  const key = `${room.roundId}:${room.turnPlayerId}:${room.turnSerial}`;
+  if (room.turnClockKey === key && room.turnDeadline) return;
+  room.turnClockKey = key;
+  room.turnDeadline = Date.now() + room.turnLimitSeconds * 1000;
+}
+
+function bumpTurn(room: Room): void {
+  room.turnSerial += 1;
+  room.turnClockKey = null;
+  room.botTurnKey = null;
+  syncTurnDeadline(room);
 }
 
 function newPlayer(id: string, name: string, socketId: string): Player {
@@ -209,6 +266,7 @@ function newPlayer(id: string, name: string, socketId: string): Player {
     hasSolved: false,
     wantsRestart: false,
     lockedBoard: emptyLockedBoard(),
+    isBot: false,
     disconnectTimer: null,
   };
 }
@@ -292,6 +350,7 @@ export function toPublicState(room: Room, viewerId: string): PublicRoomState {
       hasSolved: p.hasSolved,
       wantsRestart: p.wantsRestart,
       isManager: p.id === room.managerId,
+      isBot: p.isBot,
     })),
     turnPlayerId: room.turnPlayerId,
     history: room.history,
@@ -307,6 +366,10 @@ export function toPublicState(room: Room, viewerId: string): PublicRoomState {
     ),
     paused: isPaused(room),
     message,
+    vsComputer: room.vsComputer,
+    difficulty: room.difficulty,
+    turnLimitSeconds: room.turnLimitSeconds,
+    turnDeadline: room.phase === "playing" ? room.turnDeadline : null,
   };
 }
 
@@ -355,6 +418,10 @@ export function joinRoom(
     }
   }
 
+  if (room?.vsComputer && !(existingPlayerId && room.players.some((p) => p.id === existingPlayerId && !p.isBot))) {
+    return { ok: false, error: "This room is private." };
+  }
+
   if (!room) {
     const playerId = randomUUID();
     const player = newPlayer(playerId, name, socketId);
@@ -369,6 +436,16 @@ export function joinRoom(
       assignments: new Map(),
       celebration: null,
       createdAt: Date.now(),
+      vsComputer: false,
+      difficulty: null,
+      turnLimitSeconds: 0,
+      turnDeadline: null,
+      turnClockKey: null,
+      turnSerial: 0,
+      automationGen: 0,
+      turnTimer: null,
+      botTimer: null,
+      botTurnKey: null,
     };
     rooms.set(roomCode, room);
     return {
@@ -406,7 +483,7 @@ export type ActionResult =
   | { ok: true; room: Room; states: Map<string, PublicRoomState>; deleteRoom?: boolean }
   | { ok: false; error: string };
 
-function broadcastStates(room: Room): Map<string, PublicRoomState> {
+export function broadcastStates(room: Room): Map<string, PublicRoomState> {
   const map = new Map<string, PublicRoomState>();
   for (const p of room.players) {
     map.set(p.id, toPublicState(room, p.id));
@@ -414,7 +491,121 @@ function broadcastStates(room: Room): Map<string, PublicRoomState> {
   return map;
 }
 
-export function startGame(roomCode: string, playerId: string): ActionResult {
+function applyVsSettings(room: Room, difficulty: unknown, turnSeconds: unknown): string | null {
+  if (!room.vsComputer) return null;
+  if (difficulty !== "easy" && difficulty !== "medium" && difficulty !== "hard") {
+    return "Choose easy, medium, or hard.";
+  }
+  const turnError = validateTurnSeconds(turnSeconds);
+  if (turnError || typeof turnSeconds !== "number") return turnError ?? "Turn time must be between 0 and 240 seconds.";
+  room.difficulty = difficulty;
+  room.turnLimitSeconds = turnSeconds;
+  return null;
+}
+
+function validateTurnSeconds(turnSeconds: unknown): string | null {
+  if (
+    typeof turnSeconds !== "number" ||
+    !Number.isInteger(turnSeconds) ||
+    turnSeconds < 0 ||
+    turnSeconds > 240
+  ) {
+    return "Turn time must be between 0 and 240 seconds.";
+  }
+  return null;
+}
+
+export function setTurnLimit(
+  roomCode: string,
+  playerId: string,
+  turnSeconds: unknown,
+): ActionResult {
+  const room = rooms.get(roomCode);
+  if (!room) return { ok: false, error: "Room not found." };
+  if (room.managerId !== playerId) return { ok: false, error: "Only the manager can set the turn time." };
+  if (room.phase !== "lobby") return { ok: false, error: "Turn time can only be changed in the lobby." };
+  const turnError = validateTurnSeconds(turnSeconds);
+  if (turnError || typeof turnSeconds !== "number") {
+    return { ok: false, error: turnError ?? "Turn time must be between 0 and 240 seconds." };
+  }
+  if (room.turnLimitSeconds === turnSeconds) {
+    return { ok: true, room, states: broadcastStates(room) };
+  }
+  room.turnLimitSeconds = turnSeconds;
+  return { ok: true, room, states: broadcastStates(room) };
+}
+
+export function startVsComputer(
+  nameRaw: string,
+  difficulty: unknown,
+  turnSeconds: unknown,
+  socketId: string,
+): JoinResult {
+  const name = nameRaw.trim().slice(0, 20);
+  if (name.length < 1) return { ok: false, error: "Please enter a display name." };
+  if (namesMatch(name, "Computer")) {
+    return { ok: false, error: "That name is reserved." };
+  }
+
+  let code = "";
+  for (let attempt = 0; attempt < 30; attempt++) {
+    code = String(randomInt(1000, 10000));
+    if (!rooms.has(code)) break;
+  }
+  if (!code || rooms.has(code)) return { ok: false, error: "Couldn’t start a match. Try again." };
+
+  const humanId = randomUUID();
+  const botId = randomUUID();
+  const human = newPlayer(humanId, name, socketId);
+  const bot = newPlayer(botId, "Computer", "");
+  bot.socketId = null;
+  bot.isBot = true;
+  bot.connected = true;
+
+  const room: Room = {
+    code,
+    managerId: humanId,
+    players: [human, bot],
+    phase: "lobby",
+    roundId: null,
+    turnPlayerId: null,
+    history: [],
+    assignments: new Map(),
+    celebration: null,
+    createdAt: Date.now(),
+    vsComputer: true,
+    difficulty: null,
+    turnLimitSeconds: 0,
+    turnDeadline: null,
+    turnClockKey: null,
+    turnSerial: 0,
+    automationGen: 0,
+    turnTimer: null,
+    botTimer: null,
+    botTurnKey: null,
+  };
+  const settingsError = applyVsSettings(room, difficulty, turnSeconds);
+  if (settingsError) return { ok: false, error: settingsError };
+
+  rooms.set(code, room);
+  room.phase = "setup";
+  resetRoundState(room);
+  bot.secretGrid = randomCode();
+
+  return {
+    ok: true,
+    playerId: humanId,
+    room,
+    state: toPublicState(room, humanId),
+  };
+}
+
+export function startGame(
+  roomCode: string,
+  playerId: string,
+  difficulty?: unknown,
+  turnSeconds?: unknown,
+): ActionResult {
   const room = rooms.get(roomCode);
   if (!room) return { ok: false, error: "Room not found." };
   if (room.managerId !== playerId) return { ok: false, error: "Only the manager can start." };
@@ -423,9 +614,16 @@ export function startGame(roomCode: string, playerId: string): ActionResult {
   if (connected < MIN_PLAYERS) {
     return { ok: false, error: `Need at least ${MIN_PLAYERS} players to start.` };
   }
+  if (room.vsComputer) {
+    const settingsError = applyVsSettings(room, difficulty ?? room.difficulty, turnSeconds ?? room.turnLimitSeconds);
+    if (settingsError) return { ok: false, error: settingsError };
+  }
 
+  clearAutomationTimers(room);
   room.phase = "setup";
   resetRoundState(room);
+  const bot = room.players.find((p) => p.isBot);
+  if (bot) bot.secretGrid = randomCode();
 
   return { ok: true, room, states: broadcastStates(room) };
 }
@@ -453,6 +651,7 @@ export function setCode(
   if (allReady) {
     room.phase = "playing";
     room.turnPlayerId = firstActive(room);
+    bumpTurn(room);
   }
 
   return { ok: true, room, states: broadcastStates(room) };
@@ -504,6 +703,7 @@ export function guessLine(
   });
 
   room.turnPlayerId = nextActiveAfter(room, playerId);
+  bumpTurn(room);
 
   return { ok: true, room, states: broadcastStates(room) };
 }
@@ -556,7 +756,25 @@ export function solve(
   } else {
     room.turnPlayerId = nextActiveAfter(room, playerId);
   }
+  bumpTurn(room);
 
+  return { ok: true, room, states: broadcastStates(room) };
+}
+
+export function skipExpiredTurn(roomCode: string): ActionResult {
+  const room = rooms.get(roomCode);
+  if (!room) return { ok: false, error: "Room not found." };
+  if (room.phase !== "playing" || !room.turnPlayerId) {
+    return { ok: false, error: "No turn to skip." };
+  }
+  if (isPaused(room)) return { ok: false, error: "Game is paused." };
+  if (!room.turnDeadline || Date.now() + 25 < room.turnDeadline) {
+    return { ok: false, error: "Turn has not expired." };
+  }
+
+  const current = room.turnPlayerId;
+  room.turnPlayerId = nextActiveAfter(room, current);
+  bumpTurn(room);
   return { ok: true, room, states: broadcastStates(room) };
 }
 
@@ -570,6 +788,11 @@ export function requestRestart(roomCode: string, playerId: string): ActionResult
   }
 
   player.wantsRestart = true;
+  if (room.vsComputer) {
+    for (const other of room.players) {
+      if (other.isBot) other.wantsRestart = true;
+    }
+  }
 
   if (room.turnPlayerId === playerId) {
     room.turnPlayerId = nextActiveAfter(room, playerId);
@@ -661,6 +884,13 @@ export function leaveRoom(roomCode: string, playerId: string): ActionResult {
   }
 
   const hadTurn = room.turnPlayerId === playerId;
+  if (room.vsComputer) {
+    clearAutomationTimers(room);
+    room.automationGen += 1;
+    rooms.delete(room.code);
+    return { ok: true, room, states: new Map(), deleteRoom: true };
+  }
+
   room.players = room.players.filter((p) => p.id !== playerId);
 
   if (room.players.length === 0) {

@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import type { Axis, Grid, LineValues } from "../shared/types.js";
 
 export function emptyGrid(): (number | null)[][] {
@@ -74,6 +75,19 @@ export function gridsEqual(a: Grid, b: Grid): boolean {
     }
   }
   return true;
+}
+
+export function randomCode(): Grid {
+  const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  for (let i = digits.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [digits[i], digits[j]] = [digits[j], digits[i]];
+  }
+  return [
+    [digits[0], digits[1], digits[2]],
+    [digits[3], digits[4], digits[5]],
+    [digits[6], digits[7], digits[8]],
+  ];
 }
 
 export function cloneGrid(grid: Grid): Grid {

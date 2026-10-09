@@ -19,6 +19,8 @@ export type LockedBoard = [
 
 export type PlayerSeat = "playing" | "waitingRestart";
 
+export type Difficulty = "easy" | "medium" | "hard";
+
 export interface PublicPlayer {
   id: string;
   name: string;
@@ -27,6 +29,7 @@ export interface PublicPlayer {
   hasSolved: boolean;
   wantsRestart: boolean;
   isManager: boolean;
+  isBot: boolean;
 }
 
 export interface AssignmentEdge {
@@ -86,6 +89,12 @@ export interface PublicRoomState {
   playerLockedBoards: Record<string, LockedBoard>;
   paused: boolean;
   message: string | null;
+  vsComputer: boolean;
+  difficulty: Difficulty | null;
+  /** 0 means no turn clock. */
+  turnLimitSeconds: number;
+  /** Epoch ms when the current turn expires, or null. */
+  turnDeadline: number | null;
 }
 
 export interface JoinPayload {
@@ -110,6 +119,21 @@ export interface SolvePayload {
 
 export interface UpdateLockedBoardPayload {
   locked: LockedBoard;
+}
+
+export interface VsComputerPayload {
+  name: string;
+  difficulty: Difficulty;
+  turnSeconds: number;
+}
+
+export interface StartGamePayload {
+  difficulty?: Difficulty;
+  turnSeconds?: number;
+}
+
+export interface SetTurnLimitPayload {
+  turnSeconds: number;
 }
 
 export const ROW_LABELS = ["X", "Y", "Z"] as const;

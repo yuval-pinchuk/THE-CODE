@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Axis, Grid, LineValues, PublicRoomState } from "@shared/types";
+import type { Axis, Difficulty, Grid, LineValues, PublicRoomState } from "@shared/types";
+import TurnClock from "./components/TurnClock";
 import Game from "./screens/Game";
 import Lobby from "./screens/Lobby";
 import Setup from "./screens/Setup";
@@ -17,6 +18,8 @@ import {
   setCode,
   solveCode,
   startGame,
+  startVsComputer,
+  setTurnLimit,
 } from "./socket";
 
 function isSessionGoneError(error: string): boolean {
@@ -157,10 +160,47 @@ export default function App() {
     if (res.state) setState(res.state);
   }
 
+  function rememberSession(playerIdValue: string | undefined, roomCode: string, name: string, next?: PublicRoomState) {
+    if (playerIdValue) {
+      localStorage.setItem(PLAYER_KEY, playerIdValue);
+      setPlayerId(playerIdValue);
+    }
+    localStorage.setItem(ROOM_KEY, roomCode);
+    localStorage.setItem(NAME_KEY, name);
+    setRoomInUrl(roomCode);
+    setLinkRoomCode(roomCode);
+    if (next) setState(next);
+  }
+
+  async function handleSetTurnLimit(turnSeconds: number) {
+    const res = await setTurnLimit(turnSeconds);
+    if (!res.ok) setError(res.error);
+  }
+
   async function handleStart() {
     setBusy(true);
     setError(null);
     const res = await startGame();
+    setBusy(false);
+    if (!res.ok) setError(res.error);
+  }
+
+  async function handleVsComputer(name: string, difficulty: Difficulty, turnSeconds: number) {
+    setBusy(true);
+    setError(null);
+    const res = await startVsComputer({ name, difficulty, turnSeconds });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    rememberSession(res.playerId, res.state?.code ?? "", name, res.state);
+  }
+
+  async function handleStartVsRound(difficulty: Difficulty, turnSeconds: number) {
+    setBusy(true);
+    setError(null);
+    const res = await startGame({ difficulty, turnSeconds });
     setBusy(false);
     if (!res.ok) setError(res.error);
   }
@@ -230,6 +270,9 @@ export default function App() {
           PIN <span>CODE</span>
         </h1>
         <p className="tagline">Crack the 3×3 code</p>
+        {state?.phase === "playing" && state.turnLimitSeconds > 0 && state.turnDeadline ? (
+          <TurnClock deadline={state.turnDeadline} urgentAt={15} />
+        ) : null}
       </header>
 
       {!state || phase === "lobby" ? (
@@ -243,6 +286,9 @@ export default function App() {
           onStart={handleStart}
           onLeave={handleLeave}
           onGoHome={handleGoHome}
+          onVsComputer={handleVsComputer}
+          onStartVsRound={handleStartVsRound}
+          onSetTurnLimit={handleSetTurnLimit}
         />
       ) : null}
 

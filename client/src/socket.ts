@@ -1,5 +1,6 @@
 import { io, Socket } from "socket.io-client";
 import type {
+  Difficulty,
   GuessLinePayload,
   JoinPayload,
   PublicRoomState,
@@ -61,8 +62,20 @@ export function leaveRoom() {
   return emitAck("room:leave", {});
 }
 
-export function startGame() {
-  return emitAck("game:start", {});
+export function startGame(payload?: { difficulty?: Difficulty; turnSeconds?: number }) {
+  return emitAck("game:start", payload ?? {});
+}
+
+export function startVsComputer(payload: {
+  name: string;
+  difficulty: Difficulty;
+  turnSeconds: number;
+}) {
+  return emitAck("game:vsComputer", payload);
+}
+
+export function setTurnLimit(turnSeconds: number) {
+  return emitAck("game:setTurnLimit", { turnSeconds });
 }
 
 export function setCode(payload: SetCodePayload) {

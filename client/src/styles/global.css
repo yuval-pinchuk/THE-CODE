@@ -81,6 +81,56 @@ button {
   font-weight: 700;
 }
 
+.turn-clock {
+  margin: 0.55rem auto 0;
+  width: fit-content;
+  min-width: 4.5rem;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--navy);
+  background: rgba(255, 248, 239, 0.92);
+  border-radius: 999px;
+  padding: 0.2rem 0.85rem;
+  box-shadow: 0 4px 0 rgba(11, 61, 74, 0.08);
+}
+
+.turn-clock.urgent {
+  color: #fff;
+  background: var(--coral-deep);
+  animation: pulse-soft 0.8s ease infinite;
+}
+
+.turn-time-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.turn-time-value {
+  min-width: 6.5rem;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.turn-time-slider {
+  width: 100%;
+  margin: 0.15rem 0 1rem;
+}
+
+.turn-time-readout {
+  margin: 0 0 0.85rem;
+  text-align: center;
+  font-weight: 800;
+  color: var(--navy);
+}
+
 .panel {
   background: var(--panel);
   border-radius: var(--radius);

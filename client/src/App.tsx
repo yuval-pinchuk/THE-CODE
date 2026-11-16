@@ -230,6 +230,9 @@ export default function App() {
   }
 
   async function handleRestart() {
+    if (!window.confirm("Restart this game? You’ll wait until everyone restarts or leaves.")) {
+      return;
+    }
     setBusy(true);
     setError(null);
     const res = await requestRestart();
@@ -238,6 +241,9 @@ export default function App() {
   }
 
   async function handleLeave() {
+    if (!window.confirm("Leave this game?")) {
+      return;
+    }
     leavingRef.current = true;
     setBusy(true);
     setError(null);

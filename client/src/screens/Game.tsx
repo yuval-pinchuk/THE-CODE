@@ -570,7 +570,19 @@ export default function Game({
 
       {circleOpen ? (
         <AssignmentCircle
-          players={state.players}
+          players={[
+            ...state.players,
+            ...(state.ghostTargets ?? []).map((ghost) => ({
+              id: ghost.id,
+              name: ghost.name,
+              connected: false,
+              hasCode: true,
+              hasSolved: false,
+              wantsRestart: false,
+              isManager: false,
+              isBot: false,
+            })),
+          ]}
           assignments={state.assignments}
           viewerId={playerId}
           yourTargetId={state.yourTargetId}

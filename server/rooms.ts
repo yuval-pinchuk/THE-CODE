@@ -77,6 +77,18 @@ interface Player {
   disconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
+export interface OrphanTarget {
+  id: string;
+  name: string;
+  secretGrid: Grid;
+}
+
+interface TargetRef {
+  id: string;
+  name: string;
+  secretGrid: Grid | null;
+}
+
 export interface Room {
   code: string;
   managerId: string;
@@ -86,6 +98,7 @@ export interface Room {
   turnPlayerId: string | null;
   history: HistoryEntry[];
   assignments: Map<string, string>;
+  orphans: Map<string, OrphanTarget>;
   celebration: CelebrationState | null;
   createdAt: number;
   vsComputer: boolean;
@@ -137,10 +150,18 @@ function assignmentEdges(room: Room): AssignmentEdge[] {
   return [...room.assignments.entries()].map(([fromId, toId]) => ({ fromId, toId }));
 }
 
-function getTarget(room: Room, playerId: string): Player | undefined {
+function getTarget(room: Room, playerId: string): TargetRef | undefined {
   const targetId = room.assignments.get(playerId);
   if (!targetId) return undefined;
-  return room.players.find((p) => p.id === targetId);
+  const live = room.players.find((p) => p.id === targetId);
+  if (live) {
+    return { id: live.id, name: live.name, secretGrid: live.secretGrid };
+  }
+  const orphan = room.orphans.get(targetId);
+  if (orphan) {
+    return { id: orphan.id, name: orphan.name, secretGrid: orphan.secretGrid };
+  }
+  return undefined;
 }
 
 /** Players who can still take turns. */
@@ -179,6 +200,7 @@ export function clearAutomationTimers(room: Room): void {
 function resetRoundState(room: Room): void {
   room.roundId = randomUUID();
   room.assignments = createDerangement(room.players.map((p) => p.id));
+  room.orphans = new Map();
   room.history = [];
   room.celebration = null;
   room.turnPlayerId = null;
@@ -202,6 +224,7 @@ function returnToLobby(room: Room): void {
   room.history = [];
   room.celebration = null;
   room.assignments = new Map();
+  room.orphans = new Map();
   room.turnDeadline = null;
   room.turnClockKey = null;
   room.turnSerial = 0;
@@ -223,9 +246,11 @@ function promoteManager(room: Room): void {
 }
 
 function isPaused(room: Room): boolean {
-  if (room.phase === "lobby") return false;
-  // Only pause if an active (non-waiting) human is disconnected.
-  return room.players.some((p) => !p.isBot && !p.wantsRestart && !p.connected);
+  if (room.phase !== "playing") return false;
+  if (!room.turnPlayerId) return false;
+  const current = room.players.find((p) => p.id === room.turnPlayerId);
+  // Only pause when the player whose turn it is has closed the browser.
+  return Boolean(current && !current.isBot && !current.connected);
 }
 
 export function isRoomPaused(room: Room): boolean {
@@ -271,8 +296,31 @@ function newPlayer(id: string, name: string, socketId: string): Player {
   };
 }
 
+/** Keep a left player's code when someone is still cracking it. */
+function captureOrphanTarget(room: Room, leaving: Player): void {
+  if (room.phase !== "playing" || !leaving.secretGrid) return;
+  const stillSolving = room.players.some(
+    (p) =>
+      p.id !== leaving.id &&
+      !p.hasSolved &&
+      !p.wantsRestart &&
+      room.assignments.get(p.id) === leaving.id,
+  );
+  if (!stillSolving) return;
+  room.orphans.set(leaving.id, {
+    id: leaving.id,
+    name: leaving.name,
+    secretGrid: cloneGrid(leaving.secretGrid),
+  });
+}
+
 function repairAssignmentsAfterLeave(room: Room, leftId: string): void {
+  // Leavers no longer crack anyone else's code.
   room.assignments.delete(leftId);
+
+  // If their code was preserved, keep solvers pointed at that orphan.
+  if (room.orphans.has(leftId)) return;
+
   const remainingIds = room.players.map((p) => p.id);
   if (remainingIds.length < 2) {
     room.assignments = new Map();
@@ -288,9 +336,28 @@ function repairAssignmentsAfterLeave(room: Room, leftId: string): void {
     }
     // Prefer someone who isn't already targeted if possible.
     const targeted = new Set(room.assignments.values());
-    const free = options.filter((id) => !targeted.has(id) || id === leftId);
-    const pick = (free.length > 0 ? free : options)[randomInt(free.length > 0 ? free.length : options.length)];
+    const free = options.filter((id) => !targeted.has(id));
+    const pick = (free.length > 0 ? free : options)[
+      randomInt(free.length > 0 ? free.length : options.length)
+    ];
     room.assignments.set(fromId, pick);
+  }
+}
+
+function pruneOrphans(room: Room): void {
+  for (const orphanId of [...room.orphans.keys()]) {
+    const stillNeeded = room.players.some(
+      (p) =>
+        !p.hasSolved &&
+        !p.wantsRestart &&
+        room.assignments.get(p.id) === orphanId,
+    );
+    if (!stillNeeded) {
+      room.orphans.delete(orphanId);
+      for (const [fromId, toId] of [...room.assignments.entries()]) {
+        if (toId === orphanId) room.assignments.delete(fromId);
+      }
+    }
   }
 }
 
@@ -331,7 +398,10 @@ export function toPublicState(room: Room, viewerId: string): PublicRoomState {
 
   let message: string | null = null;
   if (isPaused(room)) {
-    message = "Waiting for a player to reconnect…";
+    const waiting = room.players.find((p) => p.id === room.turnPlayerId);
+    message = waiting
+      ? `Waiting for ${waiting.name} to reconnect…`
+      : "Waiting for a player to reconnect…";
   } else if (viewer?.wantsRestart && room.phase === "playing") {
     message = "Waiting for others to restart…";
   } else if (viewer?.hasSolved && room.phase === "playing") {
@@ -370,6 +440,9 @@ export function toPublicState(room: Room, viewerId: string): PublicRoomState {
     difficulty: room.difficulty,
     turnLimitSeconds: room.turnLimitSeconds,
     turnDeadline: room.phase === "playing" ? room.turnDeadline : null,
+    ghostTargets: [...room.orphans.values()]
+      .filter((orphan) => [...room.assignments.values()].includes(orphan.id))
+      .map((orphan) => ({ id: orphan.id, name: orphan.name })),
   };
 }
 
@@ -434,6 +507,7 @@ export function joinRoom(
       turnPlayerId: null,
       history: [],
       assignments: new Map(),
+      orphans: new Map(),
       celebration: null,
       createdAt: Date.now(),
       vsComputer: false,
@@ -571,6 +645,7 @@ export function startVsComputer(
     turnPlayerId: null,
     history: [],
     assignments: new Map(),
+    orphans: new Map(),
     celebration: null,
     createdAt: Date.now(),
     vsComputer: true,
@@ -636,7 +711,6 @@ export function setCode(
   const room = rooms.get(roomCode);
   if (!room) return { ok: false, error: "Room not found." };
   if (room.phase !== "setup") return { ok: false, error: "Not in setup phase." };
-  if (isPaused(room)) return { ok: false, error: "Waiting for a player to reconnect." };
   if (!isValidCode(grid)) {
     return { ok: false, error: "Code must use each number 1–9 exactly once." };
   }
@@ -667,7 +741,9 @@ export function guessLine(
   const room = rooms.get(roomCode);
   if (!room) return { ok: false, error: "Room not found." };
   if (room.phase !== "playing") return { ok: false, error: "Game is not in progress." };
-  if (isPaused(room)) return { ok: false, error: "Waiting for a player to reconnect." };
+  if (isPaused(room)) {
+    return { ok: false, error: "Waiting for the current player to reconnect." };
+  }
   if (room.turnPlayerId !== playerId) return { ok: false, error: "Not your turn." };
   const self = room.players.find((p) => p.id === playerId);
   if (!self) return { ok: false, error: "Player not in room." };
@@ -716,7 +792,9 @@ export function solve(
   const room = rooms.get(roomCode);
   if (!room) return { ok: false, error: "Room not found." };
   if (room.phase !== "playing") return { ok: false, error: "Game is not in progress." };
-  if (isPaused(room)) return { ok: false, error: "Waiting for a player to reconnect." };
+  if (isPaused(room)) {
+    return { ok: false, error: "Waiting for the current player to reconnect." };
+  }
   if (room.turnPlayerId !== playerId) return { ok: false, error: "Not your turn." };
   const self = room.players.find((p) => p.id === playerId);
   if (!self) return { ok: false, error: "Player not in room." };
@@ -753,6 +831,7 @@ export function solve(
       targetName: target.name,
     };
     room.turnPlayerId = nextActiveAfter(room, playerId);
+    pruneOrphans(room);
   } else {
     room.turnPlayerId = nextActiveAfter(room, playerId);
   }
@@ -850,6 +929,7 @@ export function handleDisconnect(
 
       const removedId = still.id;
       const hadTurn = current.turnPlayerId === removedId;
+      captureOrphanTarget(current, still);
       current.players = current.players.filter((p) => p.id !== removedId);
 
       if (current.players.length === 0) {
@@ -859,6 +939,7 @@ export function handleDisconnect(
       }
 
       afterPlayerRemoved(current, removedId, hadTurn);
+      pruneOrphans(current);
       onRoomUpdate(current, broadcastStates(current));
     }, RECONNECT_GRACE_MS);
 
@@ -891,6 +972,7 @@ export function leaveRoom(roomCode: string, playerId: string): ActionResult {
     return { ok: true, room, states: new Map(), deleteRoom: true };
   }
 
+  captureOrphanTarget(room, player);
   room.players = room.players.filter((p) => p.id !== playerId);
 
   if (room.players.length === 0) {
@@ -899,6 +981,7 @@ export function leaveRoom(roomCode: string, playerId: string): ActionResult {
   }
 
   afterPlayerRemoved(room, playerId, hadTurn);
+  pruneOrphans(room);
 
   return { ok: true, room, states: broadcastStates(room) };
 }

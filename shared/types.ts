@@ -95,6 +95,8 @@ export interface PublicRoomState {
   turnLimitSeconds: number;
   /** Epoch ms when the current turn expires, or null. */
   turnDeadline: number | null;
+  /** Codes of players who left, still being solved by someone. */
+  ghostTargets: { id: string; name: string }[];
 }
 
 export interface JoinPayload {

@@ -8,7 +8,10 @@ import type {
 } from "@shared/types";
 import AssignmentCircle from "../components/AssignmentCircle";
 import Coins from "../components/Coins";
-import DeductionMatrix, { type SolvedLine } from "../components/DeductionMatrix";
+import DeductionMatrix, {
+  deductionSolveSeed,
+  type SolvedLine,
+} from "../components/DeductionMatrix";
 import DigitTray from "../components/DigitTray";
 import GuessPanel from "../components/GuessPanel";
 import HistoryCoinMarksModal from "../components/HistoryCoinMarksModal";
@@ -394,12 +397,21 @@ export default function Game({
           disabled={busy}
           onGuess={onGuess}
           onOpenSolve={() => {
-            setSolveGrid([
-              [null, null, null],
-              [null, null, null],
-              [null, null, null],
-            ]);
-            setSelected({ row: 0, col: 0 });
+            const seeded = deductionSolveSeed(
+              notesStorageKey(state.code, playerId, state.roundId ?? "none"),
+            );
+            setSolveGrid(seeded);
+            let next = { row: 0, col: 0 };
+            for (let r = 0; r < 3; r++) {
+              for (let c = 0; c < 3; c++) {
+                if (seeded[r][c] === null) {
+                  next = { row: r, col: c };
+                  r = 3;
+                  break;
+                }
+              }
+            }
+            setSelected(next);
             setSolveOpen(true);
           }}
         />

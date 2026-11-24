@@ -49,6 +49,26 @@ function soleSurvivor(cell: boolean[]): number | null {
   return open.length === 1 ? open[0] : null;
 }
 
+/** Digits already shown large on the deduction board, for prefilling a solve. */
+export function deductionSolveSeed(storageKey: string): (number | null)[][] {
+  const notes = loadNotes(storageKey);
+  const grid: (number | null)[][] = [
+    [null, null, null],
+    [null, null, null],
+    [null, null, null],
+  ];
+  const seen = new Set<number>();
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const digit = notes.locked[r][c] ?? soleSurvivor(notes.crossed[r][c]);
+      if (digit === null || seen.has(digit)) continue;
+      seen.add(digit);
+      grid[r][c] = digit;
+    }
+  }
+  return grid;
+}
+
 /** Full 3×3 of large digits (locked or sole survivor), or null if incomplete/invalid. */
 function completeBoardGrid(notes: NotesState): Grid | null {
   const grid: number[][] = [

@@ -62,6 +62,21 @@ export default function Setup({ state, playerId, busy, error, onSubmit }: Props)
     });
   }
 
+  function generateRandom() {
+    if (me?.hasCode) return;
+    const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    for (let i = digits.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [digits[i], digits[j]] = [digits[j], digits[i]];
+    }
+    setGrid([
+      [digits[0], digits[1], digits[2]],
+      [digits[3], digits[4], digits[5]],
+      [digits[6], digits[7], digits[8]],
+    ]);
+    setSelected(null);
+  }
+
   function clearCell(row: number, col: number) {
     if (me?.hasCode) return;
     setSelected({ row, col });
@@ -111,6 +126,15 @@ export default function Setup({ state, playerId, busy, error, onSubmit }: Props)
       />
       <DigitTray used={used} onPick={place} disabled={busy || state.paused} />
       <div style={{ height: "0.85rem" }} />
+      <button
+        type="button"
+        className="btn btn-ghost"
+        disabled={busy || state.paused}
+        onClick={generateRandom}
+      >
+        Generate random code
+      </button>
+      <div style={{ height: "0.65rem" }} />
       <button
         type="button"
         className="btn btn-primary"

@@ -24,6 +24,8 @@ type NotesState = {
   crossed: boolean[][][];
   locked: (number | null)[][];
   appliedSolvedIds: string[];
+  /** Crosses added automatically because another cell holds that digit big (not manual taps). */
+  auto: boolean[][][];
 };
 
 const SOLE_SURVIVOR_MS = 2000;
@@ -88,19 +90,27 @@ function completeBoardGrid(notes: NotesState): Grid | null {
   return seen.size === 9 ? (grid as Grid) : null;
 }
 
+function emptyNotes(): NotesState {
+  return {
+    crossed: defaultCrossed(),
+    locked: defaultLocked(),
+    appliedSolvedIds: [],
+    auto: defaultCrossed(),
+  };
+}
+
 function loadNotes(storageKey: string): NotesState {
   let notes: NotesState;
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) {
-      notes = { crossed: defaultCrossed(), locked: defaultLocked(), appliedSolvedIds: [] };
+      notes = emptyNotes();
     } else {
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed)) {
         notes = {
+          ...emptyNotes(),
           crossed: parsed as boolean[][][],
-          locked: defaultLocked(),
-          appliedSolvedIds: [],
         };
       } else {
         const obj = parsed as Partial<NotesState>;
@@ -108,11 +118,12 @@ function loadNotes(storageKey: string): NotesState {
           crossed: obj.crossed ?? defaultCrossed(),
           locked: obj.locked ?? defaultLocked(),
           appliedSolvedIds: obj.appliedSolvedIds ?? [],
+          auto: obj.auto ?? defaultCrossed(),
         };
       }
     }
   } catch {
-    notes = { crossed: defaultCrossed(), locked: defaultLocked(), appliedSolvedIds: [] };
+    notes = emptyNotes();
   }
   cascadeBigDigits(notes);
   return notes;
@@ -123,7 +134,46 @@ function cloneNotes(prev: NotesState): NotesState {
     crossed: prev.crossed.map((row) => row.map((cell) => [...cell])),
     locked: prev.locked.map((row) => [...row]),
     appliedSolvedIds: [...prev.appliedSolvedIds],
+    auto: prev.auto.map((row) => row.map((cell) => [...cell])),
   };
+}
+
+/** Digits currently shown large (locked or sole survivor) anywhere on the board. */
+function bigDigitSet(notes: NotesState): Set<number> {
+  const set = new Set<number>();
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const digit = notes.locked[r][c] ?? soleSurvivor(notes.crossed[r][c]);
+      if (digit !== null) set.add(digit);
+    }
+  }
+  return set;
+}
+
+/**
+ * Digits that were big before and no longer are: undo only the crosses we added
+ * automatically for them. Repeats because freeing a digit can un-big other cells.
+ */
+function releaseFreedDigits(next: NotesState, before: Set<number>) {
+  let prevSet = before;
+  for (let pass = 0; pass < 9; pass++) {
+    const cur = bigDigitSet(next);
+    const freed = [...prevSet].filter((d) => !cur.has(d));
+    if (freed.length === 0) break;
+    for (const d of freed) {
+      const idx = d - 1;
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
+          if (next.auto[r][c][idx]) {
+            next.crossed[r][c][idx] = false;
+            next.auto[r][c][idx] = false;
+          }
+        }
+      }
+    }
+    reconcileLocks(next);
+    prevSet = cur;
+  }
 }
 
 function reconcileLocks(next: NotesState) {
@@ -143,6 +193,7 @@ function reconcileLocks(next: NotesState) {
 function promoteBigDigit(next: NotesState, r: number, c: number, digit: number) {
   for (let d = 0; d < 9; d++) {
     next.crossed[r][c][d] = d + 1 !== digit;
+    if (d + 1 === digit) next.auto[r][c][d] = false;
   }
 
   const idx = digit - 1;
@@ -150,7 +201,10 @@ function promoteBigDigit(next: NotesState, r: number, c: number, digit: number) 
     for (let cc = 0; cc < 3; cc++) {
       if (rr === r && cc === c) continue;
       if (next.locked[rr][cc] === digit) continue;
-      next.crossed[rr][cc][idx] = true;
+      if (!next.crossed[rr][cc][idx]) {
+        next.crossed[rr][cc][idx] = true;
+        next.auto[rr][cc][idx] = true;
+      }
     }
   }
   reconcileLocks(next);
@@ -169,6 +223,7 @@ function cascadeBigDigits(next: NotesState) {
           const shouldCross = d + 1 !== digit;
           if (next.crossed[r][c][d] !== shouldCross) {
             next.crossed[r][c][d] = shouldCross;
+            if (!shouldCross) next.auto[r][c][d] = false;
             localChange = true;
           }
         }
@@ -180,6 +235,7 @@ function cascadeBigDigits(next: NotesState) {
             if (next.locked[rr][cc] === digit) continue;
             if (!next.crossed[rr][cc][idx]) {
               next.crossed[rr][cc][idx] = true;
+              next.auto[rr][cc][idx] = true;
               localChange = true;
             }
           }
@@ -345,15 +401,18 @@ export default function DeductionMatrix({
 
   function toggle(r: number, c: number, digitIndex: number) {
     setNotes((prev) => {
+      const before = bigDigitSet(prev);
       const next = cloneNotes(prev);
       commitPending(next, { r, c });
       next.crossed[r][c][digitIndex] = !next.crossed[r][c][digitIndex];
+      next.auto[r][c][digitIndex] = false;
       reconcileLocks(next);
       const survivor = soleSurvivor(next.crossed[r][c]);
       if (survivor !== null) {
         promoteBigDigit(next, r, c, survivor);
         cascadeBigDigits(next);
       }
+      releaseFreedDigits(next, before);
       queueMicrotask(() => armPending(r, c, next.crossed, next.locked));
       return next;
     });
@@ -366,14 +425,17 @@ export default function DeductionMatrix({
     clearLongPress();
     clearTimer();
     setNotes((prev) => {
+      const before = bigDigitSet(prev);
       const next = cloneNotes(prev);
       commitPending(next, { r, c });
       for (let d = 0; d < 9; d++) {
         next.crossed[r][c][d] = d !== digitIndex;
+        next.auto[r][c][d] = false;
       }
       next.locked[r][c] = digit;
       promoteBigDigit(next, r, c, digit);
       cascadeBigDigits(next);
+      releaseFreedDigits(next, before);
       return next;
     });
     setEditing(null);
@@ -419,6 +481,7 @@ export default function DeductionMatrix({
       crossed: defaultCrossed(),
       locked: defaultLocked(),
       appliedSolvedIds: notesRef.current.appliedSolvedIds,
+      auto: defaultCrossed(),
     });
   }
 

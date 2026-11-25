@@ -14,6 +14,7 @@ type Props = {
   initialRoomCode: string | null;
   onJoin: (name: string, roomCode: string) => void;
   onStart: () => void;
+  onKick: (playerId: string, name: string) => void;
   onLeave: () => void;
   onGoHome: () => void;
   onVsComputer: (name: string, difficulty: Difficulty, turnSeconds: number) => void;
@@ -29,6 +30,7 @@ export default function Lobby({
   initialRoomCode,
   onJoin,
   onStart,
+  onKick,
   onLeave,
   onGoHome,
   onVsComputer,
@@ -213,6 +215,17 @@ export default function Lobby({
               {!p.connected ? " (away)" : ""}
             </span>
             {p.isManager ? <span className="badge">Manager</span> : null}
+            {me?.isManager && !p.isManager ? (
+              <button
+                type="button"
+                className="kick-btn"
+                disabled={busy}
+                aria-label={`Remove ${p.name} from the room`}
+                onClick={() => onKick(p.id, p.name)}
+              >
+                Remove
+              </button>
+            ) : null}
           </li>
         ))}
       </ul>

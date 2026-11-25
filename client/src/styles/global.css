@@ -287,6 +287,60 @@ button {
   animation: none;
 }
 
+.banner.queued-guess {
+  animation: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.queued-guess-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.queued-guess-btn {
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: rgba(11, 61, 74, 0.1);
+  color: var(--navy);
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  box-shadow: none;
+}
+
+.turn-alerts {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.turn-alerts-btn {
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  box-shadow: none;
+}
+
+.turn-alerts-btn.on {
+  background: rgba(45, 184, 162, 0.35);
+}
+
+.turn-alerts-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+  opacity: 0.85;
+}
+
 .banner.win {
   background: linear-gradient(135deg, rgba(245, 197, 24, 0.45), rgba(45, 184, 162, 0.3));
 }
@@ -308,6 +362,20 @@ button {
   border-radius: 12px;
   padding: 0.7rem 0.85rem;
   font-weight: 800;
+}
+
+.kick-btn {
+  font-size: 0.75rem;
+  font-weight: 800;
+  background: rgba(214, 69, 65, 0.12);
+  color: #b3322e;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  box-shadow: none;
+}
+
+.kick-btn:disabled {
+  opacity: 0.5;
 }
 
 .badge {
@@ -1033,6 +1101,29 @@ button {
 .assignment-peek {
   position: relative;
   padding-top: 0.15rem;
+}
+
+.solve-modal {
+  position: relative;
+}
+
+.solve-modal-close {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 999px;
+  background: rgba(11, 61, 74, 0.08);
+  color: var(--navy);
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  box-shadow: none;
+  z-index: 1;
 }
 
 .assignment-peek-close {

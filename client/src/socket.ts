@@ -62,6 +62,44 @@ export function leaveRoom() {
   return emitAck("room:leave", {});
 }
 
+export type PushKeyResult = { ok: true; publicKey: string } | { ok: false; error: string };
+
+export function getPushKey(): Promise<PushKeyResult> {
+  return new Promise((resolve) => {
+    if (!socket.connected) {
+      resolve({ ok: false, error: "Not connected. Try again." });
+      return;
+    }
+    const cb = (err: Error | null, res: PushKeyResult) => {
+      if (err) {
+        resolve({ ok: false, error: "Connection timed out. Try again." });
+        return;
+      }
+      resolve(res ?? { ok: false, error: "No response from server." });
+    };
+    socket.timeout(8000).emit("push:key", cb);
+  });
+}
+
+export function savePushSubscription(subscription: PushSubscriptionJSON) {
+  return emitAck("push:subscribe", { subscription });
+}
+
+export function removePushSubscription() {
+  return emitAck("push:unsubscribe", {});
+}
+
+export function kickPlayer(playerId: string) {
+  return emitAck("room:kick", { playerId });
+}
+
+export function onKicked(handler: () => void) {
+  socket.on("room:kicked", handler);
+  return () => {
+    socket.off("room:kicked", handler);
+  };
+}
+
 export function startGame(payload?: { difficulty?: Difficulty; turnSeconds?: number }) {
   return emitAck("game:start", payload ?? {});
 }

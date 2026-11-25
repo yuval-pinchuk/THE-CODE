@@ -13,7 +13,7 @@ import DeductionMatrix, {
   type SolvedLine,
 } from "../components/DeductionMatrix";
 import DigitTray from "../components/DigitTray";
-import GuessPanel from "../components/GuessPanel";
+import GuessPanel, { type QueuedGuess } from "../components/GuessPanel";
 import HistoryCoinMarksModal from "../components/HistoryCoinMarksModal";
 import LabeledGrid from "../components/LabeledGrid";
 import SolveCelebration from "../components/SolveCelebration";
@@ -37,6 +37,21 @@ type Props = {
   onRestart: () => void;
   onLeave: () => void;
 };
+
+/** Next empty cell after `from` in reading order, wrapping around; stays put if the grid is full. */
+function nextEmptyCell(
+  grid: (number | null)[][],
+  from: { row: number; col: number },
+): { row: number; col: number } {
+  const start = from.row * 3 + from.col;
+  for (let i = 1; i <= 9; i++) {
+    const idx = (start + i) % 9;
+    const r = Math.floor(idx / 3);
+    const c = idx % 3;
+    if (grid[r][c] === null) return { row: r, col: c };
+  }
+  return from;
+}
 
 export default function Game({
   state,
@@ -68,6 +83,7 @@ export default function Game({
     row: 0,
     col: 0,
   });
+  const [queuedGuess, setQueuedGuess] = useState<QueuedGuess | null>(null);
   const seenHistoryId = useRef<string | null | undefined>(undefined);
 
   const me = state.players.find((p) => p.id === playerId);
@@ -162,6 +178,22 @@ export default function Game({
     if (!myTurn) setSolveOpen(false);
   }, [myTurn]);
 
+  // Drop any queued guess when the round changes or this player is out of the round.
+  useEffect(() => {
+    setQueuedGuess(null);
+  }, [state.roundId]);
+
+  useEffect(() => {
+    if (hasSolved || state.phase !== "playing") setQueuedGuess(null);
+  }, [hasSolved, state.phase]);
+
+  // Play the queued guess as soon as it's this player's turn.
+  useEffect(() => {
+    if (!myTurn || busy || !queuedGuess) return;
+    setQueuedGuess(null);
+    onGuess(queuedGuess.axis, queuedGuess.index, queuedGuess.values);
+  }, [myTurn, busy, queuedGuess, onGuess]);
+
   useEffect(() => {
     if (showCelebration) setGuessPopup(null);
   }, [showCelebration]);
@@ -178,27 +210,15 @@ export default function Game({
 
   function placeSolve(digit: number) {
     if (!selected) return;
-    setSolveGrid((prev) => {
-      const next = prev.map((row) => [...row]);
-      for (let r = 0; r < 3; r++) {
-        for (let c = 0; c < 3; c++) {
-          if (next[r][c] === digit) next[r][c] = null;
-        }
+    const next = solveGrid.map((row) => [...row]);
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        if (next[r][c] === digit) next[r][c] = null;
       }
-      next[selected.row][selected.col] = digit;
-      return next;
-    });
-    setSelected((sel) => {
-      if (!sel) return { row: 0, col: 0 };
-      let r = sel.row;
-      let c = sel.col + 1;
-      if (c > 2) {
-        c = 0;
-        r += 1;
-      }
-      if (r > 2) return sel;
-      return { row: r, col: c };
-    });
+    }
+    next[selected.row][selected.col] = digit;
+    setSolveGrid(next);
+    setSelected(nextEmptyCell(next, selected));
   }
 
   return (
@@ -392,9 +412,13 @@ export default function Game({
         )}
       </div>
 
-      {state.phase === "playing" && myTurn ? (
+      {state.phase === "playing" && !hasSolved && !showCelebration ? (
         <GuessPanel
           disabled={busy}
+          myTurn={myTurn}
+          queued={queuedGuess}
+          onQueue={setQueuedGuess}
+          onCancelQueue={() => setQueuedGuess(null)}
           onGuess={onGuess}
           onOpenSolve={() => {
             const seeded = deductionSolveSeed(
@@ -431,8 +455,16 @@ export default function Game({
 
       {solveOpen ? (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal">
-            <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>
+          <div className="modal solve-modal">
+            <button
+              type="button"
+              className="solve-modal-close"
+              aria-label="Cancel solve"
+              onClick={() => setSolveOpen(false)}
+            >
+              ×
+            </button>
+            <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0, paddingRight: "2.5rem" }}>
               Solve {state.yourTargetName ?? "target"}’s code
             </h2>
             <p style={{ color: "var(--muted)", fontWeight: 700 }}>
@@ -462,13 +494,6 @@ export default function Game({
                 }}
               >
                 Submit solve
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setSolveOpen(false)}
-              >
-                Cancel
               </button>
             </div>
           </div>

@@ -138,6 +138,10 @@ export interface SetTurnLimitPayload {
   turnSeconds: number;
 }
 
+export interface KickPlayerPayload {
+  playerId: string;
+}
+
 export const ROW_LABELS = ["X", "Y", "Z"] as const;
 export const COL_LABELS = ["A", "B", "C"] as const;
 

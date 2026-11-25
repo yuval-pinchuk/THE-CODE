@@ -10,13 +10,33 @@ const LINE_CHOICES: LineChoice[] = [
   ...ROW_LABELS.map((label, index) => ({ axis: "row" as const, index, label })),
 ];
 
+export type QueuedGuess = {
+  axis: Axis;
+  index: number;
+  values: LineValues;
+  label: string;
+};
+
 type Props = {
   disabled?: boolean;
+  /** True when it's this player's turn; otherwise the guess is queued. */
+  myTurn: boolean;
+  queued: QueuedGuess | null;
   onGuess: (axis: Axis, index: number, values: LineValues) => void;
+  onQueue: (guess: QueuedGuess) => void;
+  onCancelQueue: () => void;
   onOpenSolve: () => void;
 };
 
-export default function GuessPanel({ disabled, onGuess, onOpenSolve }: Props) {
+export default function GuessPanel({
+  disabled,
+  myTurn,
+  queued,
+  onGuess,
+  onQueue,
+  onCancelQueue,
+  onOpenSolve,
+}: Props) {
   const [line, setLine] = useState<LineChoice | null>(null);
   const [values, setValues] = useState<(number | null)[]>([null, null, null]);
 
@@ -43,18 +63,61 @@ export default function GuessPanel({ disabled, onGuess, onOpenSolve }: Props) {
     });
   }
 
-  function submit() {
-    if (!line || values.some((v) => v === null)) return;
-    onGuess(line.axis, line.index, values as LineValues);
+  function resetDraft() {
     setValues([null, null, null]);
     setLine(null);
+  }
+
+  function submit() {
+    if (!line || values.some((v) => v === null)) return;
+    if (myTurn) {
+      onGuess(line.axis, line.index, values as LineValues);
+    } else {
+      onQueue({
+        axis: line.axis,
+        index: line.index,
+        label: line.label,
+        values: values as LineValues,
+      });
+    }
+    resetDraft();
+  }
+
+  function editQueued() {
+    if (!queued) return;
+    const choice = LINE_CHOICES.find(
+      (c) => c.axis === queued.axis && c.index === queued.index,
+    );
+    setLine(choice ?? null);
+    setValues([...queued.values]);
+    onCancelQueue();
   }
 
   const canGuess = Boolean(line) && values.every((v) => v !== null);
 
   return (
     <div className="panel">
-      <h2>Your move</h2>
+      <h2>{myTurn ? "Your move" : "Plan your move"}</h2>
+      {!myTurn ? (
+        <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>
+          Queue a guess now — it plays automatically on your turn.
+        </p>
+      ) : null}
+      {queued ? (
+        <div className="banner queued-guess">
+          <span>
+            Queued · Line {queued.label}: {queued.values.join(" ")}
+          </span>
+          <span className="queued-guess-actions">
+            <button type="button" className="queued-guess-btn" onClick={editQueued}>
+              Edit
+            </button>
+            <button type="button" className="queued-guess-btn" onClick={onCancelQueue}>
+              Cancel
+            </button>
+          </span>
+        </div>
+      ) : null}
       <div className="line-picker">
         {LINE_CHOICES.map((choice) => (
           <button
@@ -92,16 +155,26 @@ export default function GuessPanel({ disabled, onGuess, onOpenSolve }: Props) {
           disabled={disabled || !canGuess}
           onClick={submit}
         >
-          {line ? `Guess ${line.label}` : "Guess"}
+          {myTurn
+            ? line
+              ? `Guess ${line.label}`
+              : "Guess"
+            : queued
+              ? "Replace queued guess"
+              : line
+                ? `Queue ${line.label}`
+                : "Queue guess"}
         </button>
-        <button
-          type="button"
-          className="btn btn-coral"
-          disabled={disabled}
-          onClick={onOpenSolve}
-        >
-          Solve 3×3
-        </button>
+        {myTurn ? (
+          <button
+            type="button"
+            className="btn btn-coral"
+            disabled={disabled}
+            onClick={onOpenSolve}
+          >
+            Solve 3×3
+          </button>
+        ) : null}
       </div>
     </div>
   );

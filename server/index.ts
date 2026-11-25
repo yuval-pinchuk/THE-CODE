@@ -8,6 +8,7 @@ import type {
   GuessLinePayload,
   JoinPayload,
   SetCodePayload,
+  KickPlayerPayload,
   SetTurnLimitPayload,
   SolvePayload,
   StartGamePayload,
@@ -21,6 +22,7 @@ import {
   guessLine,
   handleDisconnect,
   joinRoom,
+  kickPlayer,
   leaveRoom,
   requestRestart,
   setCode,
@@ -31,6 +33,13 @@ import {
   toPublicState,
   updateLockedBoard,
 } from "./rooms.js";
+import {
+  dropRoomSubscriptions,
+  getVapidPublicKey,
+  notifyTurnPlayers,
+  removeSubscription,
+  saveSubscription,
+} from "./push.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,6 +82,9 @@ function emitStates(
       io.to(socketId).emit("room:state", state);
     }
   }
+
+  const room = getRoom(roomCode);
+  if (room) notifyTurnPlayers(room);
 }
 
 function publishRoom(roomCode: string, states: Map<string, ReturnType<typeof toPublicState>>): void {
@@ -136,7 +148,36 @@ io.on("connection", (socket) => {
       publishRoom(result.room.code, result.states);
     } else {
       stopRoomAutomation(getRoom(code));
+      dropRoomSubscriptions(code);
     }
+    ack?.({ ok: true });
+  });
+
+  socket.on("room:kick", (...args: unknown[]) => {
+    const { payload, ack } = splitAck<KickPlayerPayload>(args);
+    if (!data.roomCode || !data.playerId) {
+      ack?.({ ok: false, error: "Not in a room." });
+      return;
+    }
+    const code = data.roomCode;
+    const result = kickPlayer(code, data.playerId, payload?.playerId);
+    if (!result.ok) {
+      ack?.({ ok: false, error: result.error });
+      return;
+    }
+
+    if (result.kickedSocketId) {
+      const kickedSocket = io.sockets.sockets.get(result.kickedSocketId);
+      if (kickedSocket) {
+        const kickedData = kickedSocket.data as SocketData;
+        kickedSocket.leave(code);
+        kickedData.roomCode = undefined;
+        kickedData.playerId = undefined;
+        kickedSocket.emit("room:kicked", { roomCode: code });
+      }
+    }
+
+    publishRoom(result.room.code, result.states);
     ack?.({ ok: true });
   });
 
@@ -301,12 +342,37 @@ io.on("connection", (socket) => {
     ack?.({ ok: true });
   });
 
+  socket.on("push:key", (...args: unknown[]) => {
+    const { ack } = splitAck(args);
+    ack?.({ ok: true, publicKey: getVapidPublicKey() });
+  });
+
+  socket.on("push:subscribe", (...args: unknown[]) => {
+    const { payload, ack } = splitAck<{ subscription?: unknown }>(args);
+    if (!data.roomCode || !data.playerId) {
+      ack?.({ ok: false, error: "Not in a room." });
+      return;
+    }
+    const room = getRoom(data.roomCode);
+    if (!room) {
+      ack?.({ ok: false, error: "Room not found." });
+      return;
+    }
+    ack?.(saveSubscription(room, data.playerId, payload?.subscription));
+  });
+
+  socket.on("push:unsubscribe", (...args: unknown[]) => {
+    const { ack } = splitAck(args);
+    if (data.playerId) removeSubscription(data.playerId);
+    ack?.({ ok: true });
+  });
+
   socket.on("disconnect", () => {
     handleDisconnect(
       socket.id,
       (room, states) => publishRoom(room.code, states),
-      () => {
-        /* room deleted */
+      (code) => {
+        dropRoomSubscriptions(code);
       },
     );
   });

@@ -111,6 +111,9 @@ export interface Room {
   turnTimer: ReturnType<typeof setTimeout> | null;
   botTimer: ReturnType<typeof setTimeout> | null;
   botTurnKey: string | null;
+  /** Players the manager removed; they can't rejoin by id or by (lowercased) name. */
+  kickedIds: Set<string>;
+  kickedNames: Set<string>;
 }
 
 const rooms = new Map<string, Room>();
@@ -468,6 +471,14 @@ export function joinRoom(
 
   let room = rooms.get(roomCode);
 
+  if (
+    room &&
+    ((existingPlayerId && room.kickedIds.has(existingPlayerId)) ||
+      room.kickedNames.has(name.toLowerCase()))
+  ) {
+    return { ok: false, error: "The manager removed you from this room." };
+  }
+
   if (existingPlayerId && room) {
     const existing = room.players.find((p) => p.id === existingPlayerId);
     if (existing) {
@@ -520,6 +531,8 @@ export function joinRoom(
       turnTimer: null,
       botTimer: null,
       botTurnKey: null,
+      kickedIds: new Set(),
+      kickedNames: new Set(),
     };
     rooms.set(roomCode, room);
     return {
@@ -658,6 +671,8 @@ export function startVsComputer(
     turnTimer: null,
     botTimer: null,
     botTurnKey: null,
+    kickedIds: new Set(),
+    kickedNames: new Set(),
   };
   const settingsError = applyVsSettings(room, difficulty, turnSeconds);
   if (settingsError) return { ok: false, error: settingsError };
@@ -984,6 +999,32 @@ export function leaveRoom(roomCode: string, playerId: string): ActionResult {
   pruneOrphans(room);
 
   return { ok: true, room, states: broadcastStates(room) };
+}
+
+export type KickResult =
+  | { ok: true; room: Room; states: Map<string, PublicRoomState>; kickedSocketId: string | null }
+  | { ok: false; error: string };
+
+/** Manager removes another player from the room (lobby only). */
+export function kickPlayer(roomCode: string, managerId: string, targetId: unknown): KickResult {
+  const room = rooms.get(roomCode);
+  if (!room) return { ok: false, error: "Room not found." };
+  if (room.vsComputer) return { ok: false, error: "Can't remove players in a VS Computer match." };
+  if (room.managerId !== managerId) return { ok: false, error: "Only the manager can remove players." };
+  if (room.phase !== "lobby") return { ok: false, error: "Players can only be removed in the lobby." };
+  if (typeof targetId !== "string") return { ok: false, error: "Choose a player to remove." };
+  if (targetId === managerId) return { ok: false, error: "You can't remove yourself." };
+
+  const target = room.players.find((p) => p.id === targetId);
+  if (!target) return { ok: false, error: "Player not in room." };
+
+  const kickedSocketId = target.socketId;
+  const result = leaveRoom(roomCode, targetId);
+  if (!result.ok) return result;
+
+  room.kickedIds.add(targetId);
+  room.kickedNames.add(target.name.trim().toLowerCase());
+  return { ok: true, room, states: result.states, kickedSocketId };
 }
 
 export function getRoom(roomCode: string): Room | undefined {

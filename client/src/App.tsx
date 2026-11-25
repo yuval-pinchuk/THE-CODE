@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Axis, Difficulty, Grid, LineValues, PublicRoomState } from "@shared/types";
+import TurnAlertsToggle from "./components/TurnAlertsToggle";
 import TurnClock from "./components/TurnClock";
+import { syncAlerts } from "./pushAlerts";
 import Game from "./screens/Game";
 import Lobby from "./screens/Lobby";
 import Setup from "./screens/Setup";
@@ -11,8 +13,10 @@ import {
   ensureConnected,
   guessLine,
   joinRoom,
+  kickPlayer,
   leaveRoom,
   onConnect,
+  onKicked,
   onRoomState,
   requestRestart,
   setCode,
@@ -28,7 +32,8 @@ function isSessionGoneError(error: string): boolean {
     msg.includes("not found") ||
     msg.includes("already in progress") ||
     msg.includes("full") ||
-    msg.includes("already taken")
+    msg.includes("already taken") ||
+    msg.includes("removed you")
   );
 }
 
@@ -50,6 +55,20 @@ export default function App() {
   const prevRoundIdRef = useRef<string | null>(null);
 
   useEffect(() => onRoomState(setState), []);
+
+  useEffect(
+    () =>
+      onKicked(() => {
+        const roomCode = localStorage.getItem(ROOM_KEY);
+        if (roomCode) clearRoomNotes(roomCode);
+        localStorage.removeItem(ROOM_KEY);
+        setRoomInUrl(null);
+        setLinkRoomCode(null);
+        setState(null);
+        setError("The manager removed you from the room.");
+      }),
+    [],
+  );
 
   // Clear local deduction boards when a round ends/restarts or the room returns to lobby.
   useEffect(() => {
@@ -108,6 +127,7 @@ export default function App() {
         }
         setRoomInUrl(savedRoom);
         if (res.state) setState(res.state);
+        void syncAlerts();
       } finally {
         rejoinInFlight.current = false;
       }
@@ -158,6 +178,7 @@ export default function App() {
     setRoomInUrl(roomCode);
     setLinkRoomCode(roomCode);
     if (res.state) setState(res.state);
+    void syncAlerts();
   }
 
   function rememberSession(playerIdValue: string | undefined, roomCode: string, name: string, next?: PublicRoomState) {
@@ -170,10 +191,18 @@ export default function App() {
     setRoomInUrl(roomCode);
     setLinkRoomCode(roomCode);
     if (next) setState(next);
+    void syncAlerts();
   }
 
   async function handleSetTurnLimit(turnSeconds: number) {
     const res = await setTurnLimit(turnSeconds);
+    if (!res.ok) setError(res.error);
+  }
+
+  async function handleKick(targetId: string, targetName: string) {
+    if (!window.confirm(`Remove ${targetName} from the room?`)) return;
+    setError(null);
+    const res = await kickPlayer(targetId);
     if (!res.ok) setError(res.error);
   }
 
@@ -279,6 +308,7 @@ export default function App() {
         {state?.phase === "playing" && state.turnLimitSeconds > 0 && state.turnDeadline ? (
           <TurnClock deadline={state.turnDeadline} urgentAt={15} />
         ) : null}
+        {state && playerId ? <TurnAlertsToggle /> : null}
       </header>
 
       {!state || phase === "lobby" ? (
@@ -290,6 +320,7 @@ export default function App() {
           initialRoomCode={linkRoomCode}
           onJoin={handleJoin}
           onStart={handleStart}
+          onKick={handleKick}
           onLeave={handleLeave}
           onGoHome={handleGoHome}
           onVsComputer={handleVsComputer}

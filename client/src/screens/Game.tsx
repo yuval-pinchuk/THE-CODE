@@ -66,7 +66,12 @@ export default function Game({
   const [view, setView] = useState<"notes" | "history" | "code">("notes");
   const [solveOpen, setSolveOpen] = useState(false);
   const [circleOpen, setCircleOpen] = useState(false);
-  const [guessPopup, setGuessPopup] = useState<GuessHistoryEntry | null>(null);
+  // Guess results waiting to be shown; the first one is on screen.
+  const [guessPopups, setGuessPopups] = useState<GuessHistoryEntry[]>([]);
+  const guessPopup = guessPopups[0] ?? null;
+  function dismissGuessPopup() {
+    setGuessPopups((prev) => prev.slice(1));
+  }
   const [wrongSolveFlash, setWrongSolveFlash] = useState(false);
   const [dismissedCelebrationKey, setDismissedCelebrationKey] = useState<string | null>(null);
   const [historyFilter, setHistoryFilter] = useState<string>("all");
@@ -149,16 +154,34 @@ export default function Game({
       return;
     }
     if (last.id === seenHistoryId.current) return;
+
+    // Collect every entry added since last time so none are skipped when
+    // several arrive together (e.g. a queued guess right after another player's).
+    const history = state.history;
+    const seenIndex = seenHistoryId.current
+      ? history.findIndex((e) => e.id === seenHistoryId.current)
+      : -1;
+    const fresh =
+      seenHistoryId.current === null
+        ? history
+        : seenIndex >= 0
+          ? history.slice(seenIndex + 1)
+          : [last];
     seenHistoryId.current = last.id;
-    if (last.kind === "guess" && !showCelebration) {
-      setGuessPopup(last);
+
+    const newGuesses = fresh.filter(
+      (entry): entry is GuessHistoryEntry & { kind: "guess" } => entry.kind === "guess",
+    );
+    if (newGuesses.length > 0 && !showCelebration) {
+      setGuessPopups((prev) => [...prev, ...newGuesses]);
       setSolveOpen(false);
     }
     if (
-      last.kind === "solve" &&
-      !last.correct &&
-      last.playerId === playerId &&
-      !showCelebration
+      !showCelebration &&
+      fresh.some(
+        (entry) =>
+          entry.kind === "solve" && !entry.correct && entry.playerId === playerId,
+      )
     ) {
       setSolveOpen(false);
       setWrongSolveFlash(true);
@@ -195,7 +218,7 @@ export default function Game({
   }, [myTurn, busy, queuedGuess, onGuess]);
 
   useEffect(() => {
-    if (showCelebration) setGuessPopup(null);
+    if (showCelebration) setGuessPopups([]);
   }, [showCelebration]);
 
   const used = useMemo(() => {
@@ -543,11 +566,12 @@ export default function Game({
 
       {guessPopup && !showCelebration ? (
         <div
+          key={guessPopup.id}
           className="modal-backdrop"
           role="dialog"
           aria-modal="true"
           aria-label="Guess result"
-          onClick={() => setGuessPopup(null)}
+          onClick={dismissGuessPopup}
         >
           <div
             className="modal guess-result-modal"
@@ -597,7 +621,7 @@ export default function Game({
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => setGuessPopup(null)}
+              onClick={dismissGuessPopup}
             >
               Continue
             </button>

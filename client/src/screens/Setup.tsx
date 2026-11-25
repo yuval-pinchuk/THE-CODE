@@ -129,6 +129,7 @@ export default function Setup({ state, playerId, busy, error, onSubmit }: Props)
       <button
         type="button"
         className="btn btn-ghost"
+        style={{ width: "100%", padding: "0.95rem 1.2rem" }}
         disabled={busy || state.paused}
         onClick={generateRandom}
       >

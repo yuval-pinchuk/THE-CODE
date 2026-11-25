@@ -479,8 +479,18 @@ export function joinRoom(
     return { ok: false, error: "The manager removed you from this room." };
   }
 
-  if (existingPlayerId && room) {
-    const existing = room.players.find((p) => p.id === existingPlayerId);
+  if (room) {
+    const byId = existingPlayerId
+      ? room.players.find((p) => p.id === existingPlayerId)
+      : undefined;
+    // No saved session (cleared storage, private tab, different address)? Let a
+    // returning player take back their own away seat by name instead of being
+    // blocked by their stale entry until the reconnect grace expires.
+    const existing =
+      byId ??
+      (room.vsComputer
+        ? undefined
+        : room.players.find((p) => !p.isBot && !p.connected && namesMatch(p.name, name)));
     if (existing) {
       if (isNameTaken(room, name, existing.id)) {
         return { ok: false, error: "That name is already taken in this room." };

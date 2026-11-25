@@ -41,8 +41,22 @@ const PLAYER_KEY = "ofiny_player_id";
 const ROOM_KEY = "ofiny_room_code";
 const NAME_KEY = "ofiny_name";
 
+/** True when this device remembers a room it should be rejoining. */
+function hasSavedSession(): boolean {
+  const urlRoom = readRoomFromUrl();
+  const savedRoom = localStorage.getItem(ROOM_KEY);
+  if (urlRoom && savedRoom && urlRoom !== savedRoom) return false;
+  return Boolean(
+    savedRoom && localStorage.getItem(NAME_KEY) && localStorage.getItem(PLAYER_KEY),
+  );
+}
+
 export default function App() {
   const [state, setState] = useState<PublicRoomState | null>(null);
+  // Shown instead of the home form while we're getting back into a saved room.
+  const [reconnecting, setReconnecting] = useState(() => hasSavedSession());
+  const [reconnectError, setReconnectError] = useState<string | null>(null);
+  const rejoinRef = useRef<(() => Promise<void>) | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(
     () => localStorage.getItem(PLAYER_KEY),
   );
@@ -102,9 +116,16 @@ export default function App() {
       const savedName = localStorage.getItem(NAME_KEY);
       const savedPlayer = localStorage.getItem(PLAYER_KEY);
 
-      if (urlRoom && savedRoom && urlRoom !== savedRoom) return;
-      if (!savedRoom || !savedName || !savedPlayer) return;
+      if (urlRoom && savedRoom && urlRoom !== savedRoom) {
+        setReconnecting(false);
+        return;
+      }
+      if (!savedRoom || !savedName || !savedPlayer) {
+        setReconnecting(false);
+        return;
+      }
 
+      setReconnecting(true);
       ensureConnected();
       rejoinInFlight.current = true;
       try {
@@ -115,9 +136,15 @@ export default function App() {
         });
         if (leavingRef.current) return;
         if (!res.ok) {
-          // Keep session for timeouts / offline; only clear when the seat is gone.
           if (isSessionGoneError(res.error)) {
+            // The seat is really gone: forget it and tell the player why.
             localStorage.removeItem(ROOM_KEY);
+            setReconnecting(false);
+            setReconnectError(null);
+            setError(`Couldn’t rejoin room ${savedRoom}: ${res.error}`);
+          } else {
+            // Timeouts / offline: keep trying (see the retry loop below).
+            setReconnectError(res.error);
           }
           return;
         }
@@ -127,11 +154,14 @@ export default function App() {
         }
         setRoomInUrl(savedRoom);
         if (res.state) setState(res.state);
+        setReconnecting(false);
+        setReconnectError(null);
         void syncAlerts();
       } finally {
         rejoinInFlight.current = false;
       }
     }
+    rejoinRef.current = rejoinFromStorage;
 
     function resumeSession() {
       if (document.visibilityState && document.visibilityState !== "visible") return;
@@ -155,6 +185,29 @@ export default function App() {
       window.removeEventListener("focus", resumeSession);
     };
   }, []);
+
+  // Once we have a room, we're no longer reconnecting.
+  useEffect(() => {
+    if (state) setReconnecting(false);
+  }, [state]);
+
+  // While reconnecting, keep retrying so a missed connect event can't strand the player.
+  useEffect(() => {
+    if (state || !reconnecting) return;
+    const t = window.setInterval(() => {
+      ensureConnected();
+      void rejoinRef.current?.();
+    }, 3000);
+    return () => window.clearInterval(t);
+  }, [state, reconnecting]);
+
+  function cancelReconnect() {
+    localStorage.removeItem(ROOM_KEY);
+    setReconnecting(false);
+    setReconnectError(null);
+    setRoomInUrl(null);
+    setLinkRoomCode(null);
+  }
 
   async function handleJoin(name: string, roomCode: string) {
     setBusy(true);
@@ -311,7 +364,33 @@ export default function App() {
         {state && playerId ? <TurnAlertsToggle /> : null}
       </header>
 
-      {!state || phase === "lobby" ? (
+      {!state && reconnecting ? (
+        <div className="panel">
+          <h2>Reconnecting…</h2>
+          <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>
+            Getting you back into room {localStorage.getItem(ROOM_KEY) ?? ""}.
+          </p>
+          {reconnectError ? <div className="error">{reconnectError}</div> : null}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              ensureConnected();
+              void rejoinRef.current?.();
+            }}
+          >
+            Retry now
+          </button>
+          <div style={{ height: "0.65rem" }} />
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <button type="button" className="btn btn-ghost" onClick={cancelReconnect}>
+              Go to home
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {(!state && !reconnecting) || (state && phase === "lobby") ? (
         <Lobby
           state={state}
           playerId={playerId}

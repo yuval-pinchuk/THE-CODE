@@ -12,7 +12,8 @@
     "build:server": "tsc -p server/tsconfig.json",
     "start": "node dist/server/index.js",
     "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:match": "node scripts/match-smoke.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

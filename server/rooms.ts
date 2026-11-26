@@ -9,9 +9,16 @@ import type {
   LineValues,
   LockedBoard,
   Phase,
+  PlayerChoice,
   PublicRoomState,
+  TimeChoice,
 } from "../shared/types.js";
-import { lineLabel } from "../shared/types.js";
+import {
+  lineLabel,
+  MATCH_MAX_PLAYERS,
+  MATCH_MIN_PLAYERS,
+  TIME_CHOICES,
+} from "../shared/types.js";
 import {
   cloneGrid,
   getLine,
@@ -23,6 +30,10 @@ import {
 } from "./game.js";
 
 const RECONNECT_GRACE_MS = 15 * 60_000;
+/** Matchmade lobbies drop away players sooner so they can't block the room from filling. */
+const MATCH_LOBBY_GRACE_MS = 45_000;
+/** Turn limit for matchmade rooms that nobody has picked a time for. */
+const DEFAULT_MATCH_TURN_SECONDS = 60;
 const MAX_PLAYERS = 8;
 const MIN_PLAYERS = 2;
 
@@ -114,6 +125,12 @@ export interface Room {
   /** Players the manager removed; they can't rejoin by id or by (lowercased) name. */
   kickedIds: Set<string>;
   kickedNames: Set<string>;
+  /** Created by "Join random game". */
+  matchmade: boolean;
+  /** Players needed before Start; null = undecided (or not a matchmade room). */
+  targetPlayers: number | null;
+  /** Turn-time choice the room was matched on; "any" = undecided. */
+  timeChoice: TimeChoice;
 }
 
 const rooms = new Map<string, Room>();
@@ -446,6 +463,8 @@ export function toPublicState(room: Room, viewerId: string): PublicRoomState {
     ghostTargets: [...room.orphans.values()]
       .filter((orphan) => [...room.assignments.values()].includes(orphan.id))
       .map((orphan) => ({ id: orphan.id, name: orphan.name })),
+    matchmade: room.matchmade,
+    targetPlayers: room.targetPlayers,
   };
 }
 
@@ -543,6 +562,9 @@ export function joinRoom(
       botTurnKey: null,
       kickedIds: new Set(),
       kickedNames: new Set(),
+      matchmade: false,
+      targetPlayers: null,
+      timeChoice: "any",
     };
     rooms.set(roomCode, room);
     return {
@@ -557,8 +579,9 @@ export function joinRoom(
     return { ok: false, error: "Game already in progress." };
   }
 
-  if (room.players.length >= MAX_PLAYERS) {
-    return { ok: false, error: "Room is full (max 8 players)." };
+  const cap = room.targetPlayers ?? MAX_PLAYERS;
+  if (room.players.length >= cap) {
+    return { ok: false, error: `Room is full (max ${cap} players).` };
   }
 
   if (isNameTaken(room, name)) {
@@ -574,6 +597,152 @@ export function joinRoom(
     room,
     state: toPublicState(room, playerId),
   };
+}
+
+function normalizePlayerChoice(raw: unknown): PlayerChoice | null {
+  if (raw === "any") return "any";
+  if (
+    typeof raw === "number" &&
+    Number.isInteger(raw) &&
+    raw >= MATCH_MIN_PLAYERS &&
+    raw <= MATCH_MAX_PLAYERS
+  ) {
+    return raw;
+  }
+  return null;
+}
+
+function normalizeTimeChoice(raw: unknown): TimeChoice | null {
+  const found = TIME_CHOICES.find((c) => c.id === raw);
+  return found ? found.id : null;
+}
+
+function timeChoiceSeconds(choice: TimeChoice): number | null {
+  return TIME_CHOICES.find((c) => c.id === choice)?.seconds ?? null;
+}
+
+/**
+ * How well an open room fits a seeker: the number of choices that would be
+ * locked in by joining (0 = already matches), or null if it can't take them.
+ */
+function matchLocks(
+  room: Room,
+  name: string,
+  players: PlayerChoice,
+  time: TimeChoice,
+): number | null {
+  if (!room.matchmade || room.vsComputer || room.phase !== "lobby") return null;
+  if (room.kickedNames.has(name.toLowerCase()) || isNameTaken(room, name)) return null;
+
+  const count = room.players.length;
+  if (count >= (room.targetPlayers ?? MATCH_MAX_PLAYERS)) return null;
+
+  let locks = 0;
+  if (players !== "any") {
+    if (room.targetPlayers === null) {
+      // Undecided size: the seeker's number must leave a free seat for them.
+      if (count >= players) return null;
+      locks += 1;
+    } else if (room.targetPlayers !== players) {
+      return null;
+    }
+  }
+  if (time !== "any") {
+    if (room.timeChoice === "any") locks += 1;
+    else if (room.timeChoice !== time) return null;
+  }
+  return locks;
+}
+
+/** Join the best open random-match room, or create one with the seeker as manager. */
+export function findMatch(
+  nameRaw: string,
+  playersRaw: unknown,
+  timeRaw: unknown,
+  socketId: string,
+): JoinResult {
+  const name = (typeof nameRaw === "string" ? nameRaw : "").trim().slice(0, 20);
+  if (name.length < 1) {
+    return { ok: false, error: "Please enter a display name." };
+  }
+  const players = normalizePlayerChoice(playersRaw);
+  if (players === null) {
+    return { ok: false, error: "Choose 2 to 8 players, or Any." };
+  }
+  const time = normalizeTimeChoice(timeRaw);
+  if (time === null) {
+    return { ok: false, error: "Choose a turn time." };
+  }
+
+  let best: { room: Room; locks: number } | null = null;
+  for (const room of rooms.values()) {
+    const locks = matchLocks(room, name, players, time);
+    if (locks === null) continue;
+    if (
+      !best ||
+      locks < best.locks ||
+      (locks === best.locks &&
+        (room.players.length > best.room.players.length ||
+          (room.players.length === best.room.players.length &&
+            room.createdAt < best.room.createdAt)))
+    ) {
+      best = { room, locks };
+    }
+  }
+
+  if (best) {
+    const { room } = best;
+    // Joining with a specific choice settles anything the room left open.
+    if (players !== "any" && room.targetPlayers === null) room.targetPlayers = players;
+    if (time !== "any" && room.timeChoice === "any") {
+      room.timeChoice = time;
+      room.turnLimitSeconds = timeChoiceSeconds(time) ?? room.turnLimitSeconds;
+    }
+    const playerId = randomUUID();
+    room.players.push(newPlayer(playerId, name, socketId));
+    return { ok: true, playerId, room, state: toPublicState(room, playerId) };
+  }
+
+  let code = "";
+  for (let attempt = 0; attempt < 30; attempt++) {
+    code = String(randomInt(1000, 10000));
+    if (!rooms.has(code)) break;
+  }
+  if (!code || rooms.has(code)) {
+    return { ok: false, error: "Couldn’t find or create a game. Try again." };
+  }
+
+  const playerId = randomUUID();
+  const room: Room = {
+    code,
+    managerId: playerId,
+    players: [newPlayer(playerId, name, socketId)],
+    phase: "lobby",
+    roundId: null,
+    turnPlayerId: null,
+    history: [],
+    assignments: new Map(),
+    orphans: new Map(),
+    celebration: null,
+    createdAt: Date.now(),
+    vsComputer: false,
+    difficulty: null,
+    turnLimitSeconds: timeChoiceSeconds(time) ?? DEFAULT_MATCH_TURN_SECONDS,
+    turnDeadline: null,
+    turnClockKey: null,
+    turnSerial: 0,
+    automationGen: 0,
+    turnTimer: null,
+    botTimer: null,
+    botTurnKey: null,
+    kickedIds: new Set(),
+    kickedNames: new Set(),
+    matchmade: true,
+    targetPlayers: players === "any" ? null : players,
+    timeChoice: time,
+  };
+  rooms.set(code, room);
+  return { ok: true, playerId, room, state: toPublicState(room, playerId) };
 }
 
 export type ActionResult =
@@ -621,6 +790,7 @@ export function setTurnLimit(
   if (!room) return { ok: false, error: "Room not found." };
   if (room.managerId !== playerId) return { ok: false, error: "Only the manager can set the turn time." };
   if (room.phase !== "lobby") return { ok: false, error: "Turn time can only be changed in the lobby." };
+  if (room.matchmade) return { ok: false, error: "Turn time is fixed for random games." };
   const turnError = validateTurnSeconds(turnSeconds);
   if (turnError || typeof turnSeconds !== "number") {
     return { ok: false, error: turnError ?? "Turn time must be between 0 and 240 seconds." };
@@ -683,6 +853,9 @@ export function startVsComputer(
     botTurnKey: null,
     kickedIds: new Set(),
     kickedNames: new Set(),
+    matchmade: false,
+    targetPlayers: null,
+    timeChoice: "any",
   };
   const settingsError = applyVsSettings(room, difficulty, turnSeconds);
   if (settingsError) return { ok: false, error: settingsError };
@@ -711,8 +884,14 @@ export function startGame(
   if (room.managerId !== playerId) return { ok: false, error: "Only the manager can start." };
   if (room.phase !== "lobby") return { ok: false, error: "Game already started." };
   const connected = room.players.filter((p) => p.connected).length;
-  if (connected < MIN_PLAYERS) {
-    return { ok: false, error: `Need at least ${MIN_PLAYERS} players to start.` };
+  const needed = room.targetPlayers ?? MIN_PLAYERS;
+  if (connected < needed) {
+    return {
+      ok: false,
+      error: room.targetPlayers
+        ? `Waiting for ${needed} players (${connected}/${needed}).`
+        : `Need at least ${MIN_PLAYERS} players to start.`,
+    };
   }
   if (room.vsComputer) {
     const settingsError = applyVsSettings(room, difficulty ?? room.difficulty, turnSeconds ?? room.turnLimitSeconds);
@@ -946,6 +1125,8 @@ export function handleDisconnect(
 
     if (player.disconnectTimer) clearTimeout(player.disconnectTimer);
 
+    const graceMs =
+      room.matchmade && room.phase === "lobby" ? MATCH_LOBBY_GRACE_MS : RECONNECT_GRACE_MS;
     player.disconnectTimer = setTimeout(() => {
       const current = rooms.get(room.code);
       if (!current) return;
@@ -966,7 +1147,7 @@ export function handleDisconnect(
       afterPlayerRemoved(current, removedId, hadTurn);
       pruneOrphans(current);
       onRoomUpdate(current, broadcastStates(current));
-    }, RECONNECT_GRACE_MS);
+    }, graceMs);
 
     promoteManager(room);
     if (room.turnPlayerId === player.id && room.phase === "playing") {

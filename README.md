@@ -39,6 +39,10 @@ Notes:
 - Free instances spin down when idle; the first request after sleep can take ~30–60s.
 - Rooms are in-memory only — they reset when the service restarts or sleeps.
 
+## Join random game
+
+From the home screen, **Join random game** asks for a player count (2–8 or Any) and a turn time (No limit, Quick ~30s, Normal ~1 min, Relaxed ~2 min, or Any). The server puts you in an open room with the same choices (Any matches everything) or creates one with you as manager. Once a room's player count is fixed, the manager can only start when that many players are connected. Turn time is fixed by matchmaking. Run `npm run smoke:match` against a fresh server to check the matching rules.
+
 ## Turn alerts (Web Push)
 
 Players can tap **Turn alerts** to get a notification when it's their turn while they've left the app. The server pings them only when they're disconnected and it's their turn.

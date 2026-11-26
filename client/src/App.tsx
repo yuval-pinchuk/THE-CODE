@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { Axis, Difficulty, Grid, LineValues, PublicRoomState } from "@shared/types";
+import type {
+  Axis,
+  Difficulty,
+  Grid,
+  LineValues,
+  PlayerChoice,
+  PublicRoomState,
+  TimeChoice,
+} from "@shared/types";
 import TurnAlertsToggle from "./components/TurnAlertsToggle";
 import TurnClock from "./components/TurnClock";
 import { syncAlerts } from "./pushAlerts";
@@ -11,6 +19,7 @@ import { clearRoomNotes } from "./notesStorage";
 import { readRoomFromUrl, setRoomInUrl } from "./roomUrl";
 import {
   ensureConnected,
+  findMatch,
   guessLine,
   joinRoom,
   kickPlayer,
@@ -279,6 +288,18 @@ export default function App() {
     rememberSession(res.playerId, res.state?.code ?? "", name, res.state);
   }
 
+  async function handleFindMatch(name: string, players: PlayerChoice, timeChoice: TimeChoice) {
+    setBusy(true);
+    setError(null);
+    const res = await findMatch({ name, players, timeChoice });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    rememberSession(res.playerId, res.state?.code ?? "", name, res.state);
+  }
+
   async function handleStartVsRound(difficulty: Difficulty, turnSeconds: number) {
     setBusy(true);
     setError(null);
@@ -403,6 +424,7 @@ export default function App() {
           onLeave={handleLeave}
           onGoHome={handleGoHome}
           onVsComputer={handleVsComputer}
+          onFindMatch={handleFindMatch}
           onStartVsRound={handleStartVsRound}
           onSetTurnLimit={handleSetTurnLimit}
         />

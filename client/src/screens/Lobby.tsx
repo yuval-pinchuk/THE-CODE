@@ -1,7 +1,8 @@
 import { FormEvent, useMemo, useState } from "react";
-import type { Difficulty, PublicRoomState } from "@shared/types";
+import type { Difficulty, PlayerChoice, PublicRoomState, TimeChoice } from "@shared/types";
 import { roomInviteUrl } from "../roomUrl";
 import TurnTimeControl, { turnTimeLabel } from "../components/TurnTimeControl";
+import FindGame from "./FindGame";
 import VsSetup from "./VsSetup";
 
 const MAX_PLAYERS = 8;
@@ -18,6 +19,7 @@ type Props = {
   onLeave: () => void;
   onGoHome: () => void;
   onVsComputer: (name: string, difficulty: Difficulty, turnSeconds: number) => void;
+  onFindMatch: (name: string, players: PlayerChoice, timeChoice: TimeChoice) => void;
   onStartVsRound: (difficulty: Difficulty, turnSeconds: number) => void;
   onSetTurnLimit: (turnSeconds: number) => void;
 };
@@ -34,6 +36,7 @@ export default function Lobby({
   onLeave,
   onGoHome,
   onVsComputer,
+  onFindMatch,
   onStartVsRound,
   onSetTurnLimit,
 }: Props) {
@@ -41,6 +44,7 @@ export default function Lobby({
   const [roomCode, setRoomCode] = useState(initialRoomCode ?? "");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [vsOpen, setVsOpen] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
   const fromInviteLink = Boolean(initialRoomCode);
 
   const inviteUrl = useMemo(
@@ -96,6 +100,21 @@ export default function Lobby({
           onVsComputer(nextName, difficulty, turnSeconds);
         }}
         onBack={() => setVsOpen(false)}
+      />
+    );
+  }
+
+  if (!state && findOpen && !fromInviteLink) {
+    return (
+      <FindGame
+        initialName={name}
+        busy={busy}
+        error={error}
+        onStart={(nextName, players, timeChoice) => {
+          setName(nextName);
+          onFindMatch(nextName, players, timeChoice);
+        }}
+        onBack={() => setFindOpen(false)}
       />
     );
   }
@@ -175,6 +194,15 @@ export default function Lobby({
             >
               VS Computer
             </button>
+            <div style={{ height: "0.65rem" }} />
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={() => setFindOpen(true)}
+            >
+              Join random game
+            </button>
           </>
         ) : null}
         {fromInviteLink ? (
@@ -193,19 +221,31 @@ export default function Lobby({
 
   const me = state.players.find((p) => p.id === playerId);
   const connectedCount = state.players.filter((p) => p.connected).length;
+  // Random-match rooms can fix the number of players needed before Start.
+  const target = state.targetPlayers;
+  const neededToStart = target ?? 2;
   const canStart =
     me?.isManager &&
-    connectedCount >= 2 &&
+    connectedCount >= neededToStart &&
     state.phase === "lobby";
   const canShare = typeof navigator.share === "function";
-  const roomFull = state.players.length >= MAX_PLAYERS;
+  const capacity = target ?? MAX_PLAYERS;
+  const roomFull = state.players.length >= capacity;
+  const waitingForPlayers = connectedCount < neededToStart;
+  const searchingText = target
+    ? `Looking for players… ${connectedCount}/${target}`
+    : `Looking for players… ${connectedCount} so far (need at least 2)`;
 
   return (
     <div className="panel">
       <h2>Room {state.code}</h2>
       {error ? <div className="error">{error}</div> : null}
       <p style={{ marginTop: 0, color: "var(--muted)", fontWeight: 700 }}>
-        {connectedCount}/{MAX_PLAYERS} players · Manager starts with 2 or more.
+        {state.matchmade
+          ? target
+            ? `${connectedCount}/${target} players · Manager can start once the room is full.`
+            : `${connectedCount} players · Any number can play, start with 2 or more.`
+          : `${connectedCount}/${MAX_PLAYERS} players · Manager starts with 2 or more.`}
       </p>
       <ul className="player-list">
         {state.players.map((p) => (
@@ -230,7 +270,9 @@ export default function Lobby({
         ))}
       </ul>
 
-      {connectedCount < 2 ? (
+      {waitingForPlayers && state.matchmade ? (
+        <div className="banner warn">{searchingText}</div>
+      ) : waitingForPlayers ? (
         <div className="share-card">
           <div className="banner warn">Share this room so friends can join</div>
           <div className="btn-row share-actions">
@@ -252,7 +294,7 @@ export default function Lobby({
         </div>
       )}
 
-      {connectedCount >= 2 && !roomFull ? (
+      {(connectedCount >= 2 || state.matchmade) && !roomFull ? (
         <div className="share-card" style={{ marginTop: "0.65rem" }}>
           <div className="btn-row share-actions">
             <button type="button" className="btn btn-primary btn-half" onClick={copyInvite}>
@@ -267,7 +309,7 @@ export default function Lobby({
       ) : null}
 
       <div style={{ height: "0.85rem" }} />
-      {me?.isManager ? (
+      {me?.isManager && !state.matchmade ? (
         <TurnTimeControl
           seconds={state.turnLimitSeconds}
           onChange={onSetTurnLimit}
@@ -275,6 +317,7 @@ export default function Lobby({
       ) : (
         <p className="turn-time-readout">
           Turn time: {turnTimeLabel(state.turnLimitSeconds)}
+          {state.matchmade ? " · set by matchmaking" : ""}
         </p>
       )}
       {me?.isManager ? (
@@ -284,7 +327,7 @@ export default function Lobby({
           disabled={!canStart || busy}
           onClick={onStart}
         >
-          Start game
+          {!canStart && target ? `Start game (${connectedCount}/${target})` : "Start game"}
         </button>
       ) : (
         <div className="banner warn">Waiting for the manager to start…</div>

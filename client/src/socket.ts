@@ -1,6 +1,7 @@
 import { io, Socket } from "socket.io-client";
 import type {
   Difficulty,
+  FindMatchPayload,
   GuessLinePayload,
   JoinPayload,
   PublicRoomState,
@@ -87,6 +88,10 @@ export function savePushSubscription(subscription: PushSubscriptionJSON) {
 
 export function removePushSubscription() {
   return emitAck("push:unsubscribe", {});
+}
+
+export function findMatch(payload: FindMatchPayload) {
+  return emitAck("match:find", payload);
 }
 
 export function kickPlayer(playerId: string) {

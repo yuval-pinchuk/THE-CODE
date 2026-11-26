@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Server } from "socket.io";
 import type {
+  FindMatchPayload,
   GuessLinePayload,
   JoinPayload,
   SetCodePayload,
@@ -17,6 +18,7 @@ import type {
 } from "../shared/types.js";
 import { driveRoom, stopRoomAutomation } from "./drive.js";
 import {
+  findMatch,
   getConnectedSocketIds,
   getRoom,
   guessLine,
@@ -124,6 +126,32 @@ io.on("connection", (socket) => {
       new Map(
         result.room.players.map((p) => [p.id, toPublicState(result.room, p.id)]),
       ),
+    );
+  });
+
+  socket.on("match:find", (...args: unknown[]) => {
+    const { payload, ack } = splitAck<FindMatchPayload>(args);
+    const result = findMatch(
+      payload?.name ?? "",
+      payload?.players,
+      payload?.timeChoice,
+      socket.id,
+    );
+    if (!result.ok) {
+      ack?.({ ok: false, error: result.error });
+      return;
+    }
+
+    if (data.roomCode) socket.leave(data.roomCode);
+    data.playerId = result.playerId;
+    data.roomCode = result.room.code;
+    socket.join(result.room.code);
+
+    ack?.({ ok: true, playerId: result.playerId, state: result.state });
+
+    publishRoom(
+      result.room.code,
+      new Map(result.room.players.map((p) => [p.id, toPublicState(result.room, p.id)])),
     );
   });
 
